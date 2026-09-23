@@ -1,0 +1,211 @@
+/* ==========================================================
+   AI SOLUTION BUILDER — ROBOT LOADING OVERLAY
+   Entire white main content area becomes the loading canvas
+   ========================================================== */
+
+.robot-loading-backdrop,
+.robot-loading-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #FFFFFF;
+  cursor: wait;
+  user-select: none;
+  transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+[data-theme='dark'] .robot-loading-backdrop,
+[data-theme='dark'] .robot-loading-overlay,
+.dark .robot-loading-backdrop,
+.dark .robot-loading-overlay {
+  background: #0E131F;
+}
+
+/* Fallback if mounted at body/root level (e.g. auth check) */
+body > .robot-loading-backdrop,
+.app-container > .robot-loading-backdrop {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: 260px;
+}
+body > .robot-loading-backdrop.no-sidebar,
+.app-container > .robot-loading-backdrop.no-sidebar {
+  left: 0;
+}
+
+.robot-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+/* Enter state: initial mount */
+.robot-loading-initial {
+  opacity: 0;
+}
+.robot-loading-initial .robot-loading-content {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+/* Enter state: active transition */
+.robot-loading-enter {
+  opacity: 1;
+}
+.robot-loading-enter .robot-loading-content {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Exit state: smooth fade-out */
+.robot-loading-exit {
+  opacity: 0;
+  pointer-events: none;
+}
+.robot-loading-exit .robot-loading-content {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+/* ==========================================================
+   ROBOT VIDEO SIZING & PURE FLOATING ANIMATION
+   Desktop: 260px–340px
+   Tablet:  220px–280px
+   Mobile:  160px–220px
+   STRICTLY NO CARD, NO BORDER, NO SHADOW, NO THUMBNAIL CONTAINER
+   ========================================================== */
+
+.robot-video-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  overflow: visible;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* The video element is centered directly on the full white loading canvas */
+.robot-video {
+  width: min(320px, 35vw);
+  max-width: 340px;
+  min-width: 260px;
+  height: auto;
+  aspect-ratio: auto;
+  object-fit: contain;
+  display: block;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  pointer-events: none;
+  background: transparent !important;
+  mix-blend-mode: multiply; /* Seamlessly blends into the white loading canvas */
+}
+
+[data-theme='dark'] .robot-video,
+.dark .robot-video {
+  mix-blend-mode: screen;
+}
+
+/* Contextual Loading Message */
+.robot-loading-message {
+  margin-top: 16px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: #64748B;
+  letter-spacing: 0.01em;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+[data-theme='dark'] .robot-loading-message,
+.dark .robot-loading-message {
+  color: #94A3B8;
+}
+
+/* Dot pulse effect */
+.robot-loading-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.robot-loading-dots span {
+  animation: robotDotPulse 1.4s infinite ease-in-out both;
+}
+.robot-loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.robot-loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes robotDotPulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* Tablet (220px–280px) */
+@media (max-width: 900px) {
+  .robot-video {
+    width: min(260px, 50vw);
+    min-width: 220px;
+  }
+  .robot-loading-message {
+    font-size: 14px;
+    margin-top: 12px;
+  }
+}
+
+/* Mobile (160px–220px) */
+@media (max-width: 480px) {
+  .robot-video {
+    width: min(190px, 65vw);
+    min-width: 160px;
+  }
+  .robot-loading-message {
+    font-size: 13px;
+    margin-top: 10px;
+  }
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .robot-loading-backdrop,
+  .robot-loading-overlay,
+  .robot-loading-content {
+    transition: opacity 150ms linear !important;
+    transform: none !important;
+  }
+  .robot-loading-dots span {
+    animation: none !important;
+    opacity: 0.7;
+  }
+}

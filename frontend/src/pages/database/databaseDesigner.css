@@ -1,0 +1,492 @@
+/* ==========================================================================
+   RootForge Database Schema & API Contract Studio
+   Semantic Design Tokens & Adaptive Light/Dark Theme System
+   ========================================================================== */
+
+/* 1. Theme Variables & Semantic Tokens */
+:root,
+[data-theme='dark'],
+.dark {
+  --db-canvas-bg: #0B0F17;
+  --db-canvas-grid-dot: rgba(255, 255, 255, 0.08);
+  --db-surface: #141A26;
+  --db-surface-muted: #1A2232;
+  --db-surface-elevated: #1E2536;
+  --db-surface-header: #19202E;
+  --db-border: #232B3E;
+  --db-border-strong: #333F56;
+  --db-text-primary: #F1F5F9;
+  --db-text-secondary: #94A3B8;
+  --db-text-muted: #64748B;
+  --db-code-bg: #0B1120;
+  --db-code-text: #E2E8F0;
+  --db-code-border: #232B3E;
+  --db-drawer-bg: #121824;
+  --db-chip-bg: rgba(255, 255, 255, 0.06);
+  --db-card-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --db-input-bg: #0B1120;
+}
+
+[data-theme='light'],
+.light {
+  --db-canvas-bg: #FAF8F5;
+  --db-canvas-grid-dot: rgba(0, 0, 0, 0.08);
+  --db-surface: #FFFFFF;
+  --db-surface-muted: #F8FAFC;
+  --db-surface-elevated: #FFFFFF;
+  --db-surface-header: #F1F5F9;
+  --db-border: #E2E8F0;
+  --db-border-strong: #CBD5E1;
+  --db-text-primary: #0F172A;
+  --db-text-secondary: #334155;
+  --db-text-muted: #64748B;
+  --db-code-bg: #F8FAFC;
+  --db-code-text: #0F172A;
+  --db-code-border: #E2E8F0;
+  --db-drawer-bg: #FFFFFF;
+  --db-chip-bg: #F1F5F9;
+  --db-card-shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --db-input-bg: #FFFFFF;
+}
+
+/* 2. Studio Container */
+.db-studio-container {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  padding-bottom: 40px;
+}
+
+/* 3. Tab Navigation Bar */
+.db-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--db-border);
+  padding-bottom: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.db-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--db-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.db-tab-btn:hover {
+  color: var(--db-text-primary);
+  background-color: var(--db-surface-muted);
+  border-color: var(--db-border);
+}
+
+.db-tab-btn.active {
+  background-color: var(--db-surface);
+  color: var(--db-text-primary);
+  border-color: var(--db-border);
+  box-shadow: var(--db-card-shadow);
+  font-weight: 700;
+}
+
+.db-tab-badge {
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background-color: var(--db-chip-bg);
+  font-weight: 700;
+}
+
+.db-tab-btn.active .db-tab-badge {
+  background-color: var(--accent-amber, #D97706);
+  color: #FFFFFF;
+}
+
+/* 4. ERD Visualizer */
+.erd-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  background-color: var(--db-surface);
+  border: 1px solid var(--db-border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--db-card-shadow);
+}
+
+.erd-canvas-wrap {
+  position: relative;
+  background-color: var(--db-canvas-bg);
+  background-image: radial-gradient(var(--db-canvas-grid-dot) 1px, transparent 0);
+  background-size: 24px 24px;
+  border: 1px solid var(--db-border);
+  border-radius: var(--radius-md, 8px);
+  min-height: 520px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.erd-entities-grid {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  padding: 24px;
+}
+
+.erd-entity-card {
+  background-color: var(--db-surface);
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--db-card-shadow);
+  transition: all 0.2s ease;
+}
+
+.erd-entity-card:hover,
+.erd-entity-card.highlighted {
+  border-color: var(--accent-amber, #D97706);
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.25), var(--db-card-shadow);
+}
+
+.erd-entity-header {
+  background-color: var(--db-surface-header);
+  border-bottom: 1px solid var(--db-border);
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.erd-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--db-border);
+  font-size: 0.775rem;
+  background-color: var(--db-surface);
+  transition: background-color 0.15s ease;
+}
+
+.erd-field-row:hover {
+  background-color: var(--db-surface-muted);
+}
+
+.erd-badge-pk {
+  background-color: rgba(217, 119, 6, 0.15);
+  color: #D97706;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  font-size: 0.625rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.erd-badge-fk {
+  background-color: rgba(37, 99, 235, 0.15);
+  color: #2563EB;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  font-size: 0.625rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.erd-badge-unique {
+  background-color: rgba(5, 150, 105, 0.15);
+  color: #059669;
+  border: 1px solid rgba(5, 150, 105, 0.3);
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* 5. SQL & Prisma Code Cards */
+.db-code-card {
+  border: 1px solid var(--db-border);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+  background-color: var(--db-surface);
+  box-shadow: var(--db-card-shadow);
+}
+
+.db-code-header {
+  background-color: var(--db-surface-header);
+  border-bottom: 1px solid var(--db-border);
+  padding: 10px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.db-code-pre {
+  margin: 0;
+  padding: 20px;
+  color: var(--db-code-text);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.815rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  background-color: var(--db-code-bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 6. REST API Documentation (High Contrast & Zero Muddy Overlay) */
+.api-endpoint-card {
+  border: 1px solid var(--db-border);
+  border-radius: var(--radius-md, 8px);
+  background-color: var(--db-surface);
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: var(--db-card-shadow);
+  transition: border-color 0.2s ease;
+  opacity: 1 !important;
+}
+
+.api-endpoint-card:hover {
+  border-color: var(--db-border-strong);
+}
+
+.api-endpoint-summary {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  background-color: var(--db-surface);
+  opacity: 1 !important;
+}
+
+.api-method-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  min-width: 58px;
+  text-align: center;
+}
+
+.api-method-GET {
+  background-color: rgba(37, 99, 235, 0.12);
+  color: #1E40AF;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+}
+
+.api-method-POST {
+  background-color: rgba(5, 150, 105, 0.12);
+  color: #065F46;
+  border: 1px solid rgba(5, 150, 105, 0.28);
+}
+
+.api-method-PATCH,
+.api-method-PUT {
+  background-color: rgba(217, 119, 6, 0.12);
+  color: #92400E;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+}
+
+.api-method-DELETE {
+  background-color: rgba(220, 38, 38, 0.12);
+  color: #991B1B;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+}
+
+/* Dark mode adjustments for method badges */
+[data-theme='dark'] .api-method-GET,
+.dark .api-method-GET {
+  color: #60A5FA;
+  background-color: rgba(37, 99, 235, 0.2);
+}
+[data-theme='dark'] .api-method-POST,
+.dark .api-method-POST {
+  color: #34D399;
+  background-color: rgba(16, 185, 129, 0.2);
+}
+[data-theme='dark'] .api-method-PATCH,
+.dark .api-method-PATCH,
+[data-theme='dark'] .api-method-PUT,
+.dark .api-method-PUT {
+  color: #FBBF24;
+  background-color: rgba(217, 119, 6, 0.2);
+}
+[data-theme='dark'] .api-method-DELETE,
+.dark .api-method-DELETE {
+  color: #F87171;
+  background-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Expanded details container: Clean, crisp, NO muddy dark overlay */
+.api-details-body {
+  padding: 16px;
+  border-top: 1px solid var(--db-border);
+  background-color: var(--db-surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  opacity: 1 !important;
+}
+
+/* 7. Integration Architecture View */
+.arch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.arch-layer-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--db-surface-muted);
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.arch-node-card {
+  background-color: var(--db-surface);
+  border: 1px solid var(--db-border);
+  border-radius: 6px;
+  padding: 12px;
+  cursor: pointer;
+  box-shadow: var(--db-card-shadow);
+  transition: all 0.2s ease;
+}
+
+.arch-node-card:hover,
+.arch-node-card.selected {
+  border-color: var(--accent-amber, #D97706);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);
+}
+
+/* 8. Data Flow Sequence */
+.dataflow-step-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background-color: var(--db-surface);
+  margin-bottom: 10px;
+  box-shadow: var(--db-card-shadow);
+}
+
+.dataflow-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: var(--accent-amber, #D97706);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+/* 9. Validation Tab */
+.val-score-banner {
+  padding: 16px 20px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  background-color: var(--db-surface);
+  border: 1px solid var(--db-border);
+  box-shadow: var(--db-card-shadow);
+}
+
+.val-issue-item {
+  padding: 14px 16px;
+  border-radius: 6px;
+  background-color: var(--db-surface);
+  border: 1px solid var(--db-border);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  box-shadow: var(--db-card-shadow);
+}
+
+/* 10. AI Assistant Drawer */
+.db-ai-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 440px;
+  max-width: 90vw;
+  background-color: var(--db-drawer-bg);
+  border-left: 1px solid var(--db-border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 11. Responsive Overrides */
+@media (max-width: 768px) {
+  .erd-entities-grid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .db-code-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .api-endpoint-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .db-ai-drawer {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 85vh !important;
+    max-height: calc(100dvh - 50px) !important;
+    top: auto !important;
+    bottom: 0 !important;
+    border-radius: 16px 16px 0 0 !important;
+    border-left: none !important;
+    border-top: 2px solid var(--accent-amber, #D97706) !important;
+    padding-bottom: var(--sab, 0px) !important;
+  }
+
+  .db-tab-btn {
+    min-height: 42px;
+    padding: 8px 14px;
+  }
+}

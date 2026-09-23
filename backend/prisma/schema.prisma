@@ -1,0 +1,484 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows", "darwin", "darwin-arm64"]
+}
+
+model Organization {
+  id         String      @id @default(cuid())
+  name       String
+  industry   String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  users      User[]
+  workspaces Workspace[]
+}
+
+model User {
+  id                    String                 @id @default(cuid())
+  email                 String                 @unique
+  passwordHash          String
+  name                  String
+  role                  String                 @default("CONSULTANT") // ADMIN, CONSULTANT, ANALYST, VIEWER
+  emailVerified         Boolean                @default(false)
+  organizationId        String?
+  organization          Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  workspaces            Workspace[]            @relation("CreatedWorkspaces")
+  comments              Comment[]
+  approvals             Approval[]
+  activityLogs          ActivityLog[]
+  notifications         Notification[]
+  versions              ArtifactVersion[]
+  emailVerificationOTPs EmailVerificationOTP[]
+}
+
+model EmailVerificationOTP {
+  id          String    @id @default(cuid())
+  email       String
+  otpHash     String
+  purpose     String    @default("EMAIL_VERIFICATION") // EMAIL_VERIFICATION, PASSWORD_RESET
+  expiresAt   DateTime
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  verifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String?
+
+  @@index([email])
+}
+
+model Workspace {
+  id                 String              @id @default(cuid())
+  name               String
+  organizationId     String?
+  organization       Organization?       @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  industry           String
+  objective          String
+  challenge          String
+  targetUsers        String
+  expectedOutcome    String
+  status             String              @default("DISCOVERY") // DISCOVERY, ANALYSIS, SOLUTION, ARCHITECTURE, PROCESS, UX, DATABASE, PLANNING, REVIEW, COMPLETED
+  isDemo             Boolean             @default(false)
+  createdById        String?
+  createdBy          User?               @relation("CreatedWorkspaces", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  documents          Document[]
+  conversations      Conversation[]
+  businessAnalyses   BusinessAnalysis[]
+  solutions          Solution[]
+  architectures      Architecture[]
+  processes          ProcessModel[]
+  uxDesigns          UXDesign[]
+  databaseDesigns    DatabaseDesign[]
+  apiDesigns         ApiDesign[]
+  implementationPlans ImplementationPlan[]
+  comments           Comment[]
+  approvals          Approval[]
+  activityLogs       ActivityLog[]
+  versions           ArtifactVersion[]
+  exportJobs         ExportJob[]
+  aiTokensUsed       Int                 @default(0)
+}
+
+model Document {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  filename      String
+  originalName  String
+  fileType      String
+  fileSize      Int
+  status        String    @default("UPLOADED") // UPLOADED, PROCESSING, ANALYZED, FAILED
+  extractedText String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Conversation {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  stage         String    @default("discovery") // discovery, analysis, solution, architecture, process, ux, database, planning, overview, general
+  title         String    @default("New Chat")
+  isArchived    Boolean   @default(false)
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  messages      Message[]
+
+  @@index([workspaceId, stage, updatedAt])
+  @@index([workspaceId, stage, lastMessageAt])
+}
+
+model Message {
+  id                String       @id @default(cuid())
+  conversationId    String
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role              String       // user, assistant, system
+  content           String
+  structuredContent String?      // Serialized JSON of structured consultant response
+  suggestedAction   String?
+  clientRequestId   String?      // Idempotency token to prevent duplicate messages
+  createdAt         DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([clientRequestId])
+}
+
+model BusinessAnalysis {
+  id                       String    @id @default(cuid())
+  workspaceId              String
+  workspace                Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentState             String
+  futureState              String
+  goals                    String    // JSON array
+  painPoints               String    // JSON array
+  stakeholders             String    // JSON array
+  requirements             String    // JSON array
+  gaps                     String    // JSON array
+  processIssues            String    // JSON array
+  automationOpportunities  String    // JSON array
+  digitalMaturityScore     Int       @default(65)
+  improvementOpportunities String    // JSON array
+  status                   String    @default("DRAFT") // DRAFT, REVIEW, APPROVED
+  version                  Int       @default(1)
+  // Enhanced Canonical Analysis & Provenance Fields
+  executiveSummary         String?
+  assessmentScores         String?   // JSON object with dimensional breakdown, rationale, evidence
+  strategicGoals           String?   // JSON array of rich goal objects
+  operationalPainPoints    String?   // JSON array of rich pain point objects
+  requirementsData         String?   // JSON array of rich requirement objects
+  openQuestions            String?   // JSON array of open questions
+  assumptions              String?   // JSON array of assumptions
+  recommendations          String?   // JSON array of recommendations
+  evidenceReferences       String?   // JSON array of cited evidence
+  currentOperatingContext  String?   // JSON object of confirmed, inferred, unknown current state
+  futureOperatingState     String?   // JSON object or string of future state
+  validationSummary        String?   // JSON object of validation statistics
+  model                    String?   // AI model used for synthesis
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+}
+
+model Solution {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name               String
+  summary            String
+  businessValue      String
+  keyCapabilities    String    // JSON array
+  automationOpps     String    // JSON array
+  aiOpps             String    // JSON array
+  techStack          String    // JSON object: frontend, backend, ai, database, integrations
+  implementationApproach String
+  risks              String    // JSON array
+  assumptions        String    // JSON array
+  dependencies       String    // JSON array
+  options            String    // JSON array of comparison options (Option A, B, C)
+  selectedOption     String    @default("OPTION_B")
+  status             String    @default("DRAFT") // DRAFT, APPROVED
+  version            Int       @default(1)
+  sourceAnalysisId       String?
+  sourceAnalysisVersion  Int?
+  sourceContextHash      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Architecture {
+  id                     String             @id @default(cuid())
+  workspaceId            String
+  workspace              Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title                  String             @default("Solution Architecture")
+  highLevelDesign        String
+  lowLevelDesign         String
+  integrationArch        String
+  infrastructureArch     String
+  securityArch           String
+  deploymentArch         String
+  status                 String             @default("DRAFT")
+  version                Int                @default(1)
+  sourceSolutionId       String?
+  sourceSolutionOptionId String?
+  sourceContextHash      String?
+  traceabilityJson       String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  nodes                  ArchitectureNode[]
+  edges                  ArchitectureEdge[]
+}
+
+model ArchitectureNode {
+  id               String       @id @default(cuid())
+  architectureId   String
+  architecture     Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+  label            String
+  type             String       // CLIENT, GATEWAY, SERVICE, AI, DATABASE, INTEGRATION
+  description      String
+  tier             String       // Client Layer, Gateway Layer, Application Services, AI & Automation, Persistence, Integrations
+  posX             Float        @default(100)
+  posY             Float        @default(100)
+  tech             String?
+  status           String       @default("ACTIVE")
+  purpose          String?
+  source           String?      // DOCUMENTED, USER_PROVIDED, EXISTING_SYSTEM, SELECTED_SOLUTION, RECOMMENDED, VALIDATION_REQUIRED
+  confidence       Float?
+  requirementIds   String?
+  capabilityIds    String?
+  dependencies     String?
+  validationStatus String?      // EXISTING, PROPOSED, RECOMMENDED, VALIDATION_REQUIRED
+  classification   String?      // EXISTING, USER_PROVIDED, RECOMMENDED, AI_PROPOSED, VALIDATION_REQUIRED, USER_ADDED
+}
+
+model ArchitectureEdge {
+  id             String       @id @default(cuid())
+  architectureId String
+  architecture   Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+  sourceId       String
+  targetId       String
+  label          String?
+  protocol       String?      // REST, gRPC, WebSocket, SQL, Event
+  relationship   String?
+  direction      String?
+  description    String?
+  requirementIds String?
+}
+
+model ProcessModel {
+  id                         String        @id @default(cuid())
+  workspaceId                String
+  workspace                  Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title                      String        @default("Target Process Workflow")
+  description                String
+  type                       String        @default("WORKFLOW") // WORKFLOW, SWIMLANE, DECISION_TREE
+  status                     String        @default("DRAFT")
+  version                    Int           @default(1)
+  sourceArchitectureId       String?
+  sourceArchitectureVersion  Int?
+  sourceSolutionOptionId     String?
+  sourceContextHash          String?
+  transitionsJson            String?
+  decisionRulesJson          String?
+  validationStateJson        String?
+  metadataJson               String?
+  createdAt                  DateTime      @default(now())
+  updatedAt                  DateTime      @updatedAt
+  nodes                      ProcessNode[]
+}
+
+model ProcessNode {
+  id                 String        @id @default(cuid())
+  processModelId     String
+  processModel       ProcessModel  @relation(fields: [processModelId], references: [id], onDelete: Cascade)
+  stepOrder          Int
+  label              String
+  type               String        // START, AI, RULE, ACTION, APPROVAL, INTEGRATION, NOTIFICATION, DATA, HUMAN_REVIEW, EXCEPTION, END
+  actor              String        // Customer, Agent, AI Engine, Supervisor, System
+  description        String
+  condition          String?
+  nextStepId         String?
+  system             String?
+  input              String?
+  action             String?
+  output             String?
+  aiCapability       String?
+  confidence         Float?
+  sla                String?
+  retryPolicy        String?
+  failureHandling    String?
+  requirementIds     String?
+  architectureNodeId String?
+  classification     String?       @default("AI_PROPOSED")
+  timeoutPolicy      String?
+  escalationPolicy   String?
+  preconditions      String?
+  postconditions     String?
+  validationStatus   String?       @default("PROPOSED")
+  sourceContext      String?
+}
+
+model UXDesign {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title        String    @default("UX Solution Wireframes")
+  screens      String    // JSON array of screens with layout components
+  designTokens String    // JSON of colors, typography, spacing
+  status       String    @default("DRAFT")
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model DatabaseDesign {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title        String    @default("Relational Data Model & ERD")
+  entities     String    // JSON array of entities with fields, types, constraints
+  relations    String    // JSON array of relations
+  sqlSchema    String
+  prismaSchema String
+  status       String    @default("DRAFT")
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model ApiDesign {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String    @default("Enterprise REST API Specifications")
+  baseUrl     String    @default("/api/v1")
+  authType    String    @default("Bearer JWT")
+  endpoints   String    // JSON array of endpoint specifications
+  status      String    @default("DRAFT")
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ImplementationPlan {
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title                  String    @default("Transformation Implementation Plan")
+  phases                 String    // JSON array of phases (Discovery, Architecture, Dev, Testing, Deploy)
+  estimatedDurationWeeks Int       @default(12)
+  estimatedCost          String    @default("$180,000 - $240,000")
+  methodology            String    @default("Agile / Scrum (2-week Sprints)")
+  status                 String    @default("DRAFT")
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  tasks                  Task[]
+}
+
+model Task {
+  id                String             @id @default(cuid())
+  planId            String
+  plan              ImplementationPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  phaseName         String
+  title             String
+  description       String
+  assignedRole      String
+  durationWeeks     Float              @default(1.0)
+  sprint            String             @default("Sprint 1")
+  status            String             @default("TODO") // TODO, IN_PROGRESS, BLOCKED, COMPLETED
+  dependencies      String?            // JSON array of task titles or IDs
+  riskLevel         String             @default("LOW") // LOW, MEDIUM, HIGH
+  sourceRequirement String?            // Traceability to BR-xx, Architecture Component, Process Step, or API
+  riskReason        String?            // Reason why task has HIGH or MEDIUM risk
+  riskMitigation    String?            // Mitigation strategy
+  isUserEdited      Boolean            @default(false)
+  taskOrder         Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @default(now()) @updatedAt
+}
+
+model Comment {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifactType  String    // GENERAL, DISCOVERY, ANALYSIS, SOLUTION, ARCHITECTURE, PROCESS, UX, DATABASE, PLANNING
+  artifactId    String?
+  artifactName  String?
+  versionNumber Int?
+  parentId      String?   // For threaded replies — references another Comment.id
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content       String
+  mentions      String?   // JSON array of user emails or names
+  status        String    @default("OPEN") // OPEN, RESOLVED, REOPENED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Approval {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifactType  String    // DISCOVERY, ANALYSIS, SOLUTION, ARCHITECTURE, PROCESS, UX, DATABASE, PLANNING
+  artifactId    String?
+  artifactName  String?
+  versionId     String?
+  versionNumber Int?
+  stage         String    @default("REVIEW") // REVIEW, FINAL, EXECUTIVE
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        String    @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, CHANGES_REQUESTED, REJECTED, SUPERSEDED
+  comments      String?
+  approvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, artifactType, versionNumber, stage, userId])
+}
+
+model ActivityLog {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName        String?
+  userRole        String?
+  action          String    // VERSION_CREATED, VERSION_RESTORED, SIGN_OFF_SUBMITTED, SIGN_OFF_APPROVED, SIGN_OFF_REJECTED, CHANGES_REQUESTED, COMMENT_ADDED, COMMENT_RESOLVED, COMMENT_REOPENED, ARTIFACT_REGENERATED, TASK_UPDATED, EXPORT_CREATED
+  details         String
+  artifactType    String?
+  artifactName    String?
+  versionNumber   Int?
+  resultingStatus String?
+  beforeState     String?
+  afterState      String?
+  createdAt       DateTime  @default(now())
+}
+
+model ArtifactVersion {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  artifactType  String    // ANALYSIS, SOLUTION, ARCHITECTURE, PROCESS, UX, DATABASE, API, PLANNING
+  versionNumber Int
+  snapshotData  String    // Complete serialized JSON state of the artifact
+  notes         String?
+  createdById   String?
+  createdBy     User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+}
+
+model ExportJob {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  format        String    // PDF, DOCX, XLSX, PPTX, JSON, MARKDOWN
+  scope         String    @default("COMPLETE") // COMPLETE or specific artifact
+  status        String    @default("COMPLETED") // COMPLETED, FAILED
+  version       String?   // Traceable export or artifact version (e.g. V1, V5)
+  createdByName String?   // Name of user who generated export
+  errorReason   String?   // Detailed failure reason if status is FAILED
+  downloadUrl   String?
+  summary       String?
+  createdAt     DateTime  @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, APPROVAL
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

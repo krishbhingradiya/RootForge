@@ -1,0 +1,708 @@
+/* =========================================================================
+   ROOTFORGE ENTERPRISE UX DESIGN WORKSPACE STYLES
+   Source of Truth: RootForge Design System & Theme Variables
+   ========================================================================= */
+
+.ux-workspace-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding-bottom: 60px;
+}
+
+/* 1. Header */
+.ux-header-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ux-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.ux-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ux-stage-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.ux-page-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.ux-page-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  max-width: 720px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.ux-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ux-header-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* 2. Segmented Controls */
+.ux-segmented-control {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.ux-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.ux-seg-btn:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.ux-seg-btn.active {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-medium);
+}
+
+.ux-seg-btn.active.primary-accent {
+  background-color: var(--accent-amber);
+  color: #FFFFFF;
+  border: 1px solid var(--accent-amber);
+}
+
+/* 3. Compact AI Requirement & Context Bar */
+.ux-requirement-panel {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ux-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.ux-panel-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ux-panel-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ux-panel-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.ux-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ux-preset-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+
+.ux-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ux-chip:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-amber);
+  background-color: var(--bg-card-hover);
+}
+
+.ux-chip.active {
+  background-color: var(--accent-amber-light);
+  color: var(--accent-amber-text);
+  border-color: rgba(217, 119, 6, 0.4);
+  font-weight: 600;
+}
+
+.ux-textarea {
+  width: 100%;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  resize: vertical;
+  min-height: 52px;
+  transition: border-color 0.15s ease;
+}
+
+.ux-textarea:focus {
+  outline: none;
+  border-color: var(--accent-amber);
+}
+
+.ux-input {
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.ux-input:focus {
+  outline: none;
+  border-color: var(--accent-amber);
+}
+
+/* 4. AI Understanding Context Strip */
+.ux-context-strip {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-amber);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.ux-context-grid {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.ux-context-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ux-context-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.ux-context-value {
+  font-size: 0.825rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* 5. Theme Recommendation Cards */
+.ux-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.ux-theme-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ux-theme-card:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-md);
+}
+
+.ux-theme-card.active {
+  border-width: 2px;
+  border-style: solid;
+  background-color: rgba(245, 158, 11, 0.03);
+}
+
+.ux-theme-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ux-theme-swatches {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0;
+}
+
+.ux-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* 6. HERO GENERATED UI WORKSPACE */
+.ux-hero-workspace {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ux-workspace-topbar {
+  background-color: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ux-screen-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.ux-screen-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.ux-screen-tab:hover {
+  color: var(--text-primary);
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.ux-screen-tab.active {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.ux-screen-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 2px;
+  background-color: var(--accent-amber);
+  border-radius: 2px;
+}
+
+/* Browser Frame Canvas */
+.ux-canvas-area {
+  padding: 24px;
+  background-color: var(--bg-main);
+  min-height: 540px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/* Desktop Frame — when .ux-themed-frame is applied, inline styles control bg/border */
+.ux-frame-desktop {
+  width: 100%;
+  max-width: 1200px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ux-frame-desktop.ux-themed-frame {
+  background-color: unset;
+  border-color: unset;
+}
+
+/* Tablet Frame */
+.ux-frame-tablet {
+  width: 100%;
+  max-width: 768px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ux-frame-tablet.ux-themed-frame {
+  background-color: unset;
+  border-color: unset;
+}
+
+/* Mobile Frame (Realistic Modern Smartphone Chassis) */
+.ux-frame-mobile {
+  width: 100%;
+  max-width: 380px;
+  background-color: var(--bg-surface);
+  border: 10px solid #1E232D;
+  border-radius: 44px;
+  box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 720px;
+  position: relative;
+  margin: 0 auto;
+}
+.ux-frame-mobile.ux-themed-frame {
+  background-color: unset;
+}
+.ux-frame-mobile .ux-frame-content {
+  padding: 12px;
+  gap: 12px;
+}
+
+/* Themed Frame: ensure ALL descendants smoothly transition theme token changes */
+.ux-themed-frame * {
+  transition:
+    background-color 0.35s ease,
+    color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+/* Exempt SVG internals from the wildcard transition (prevents ring animation jank) */
+.ux-themed-frame svg,
+.ux-themed-frame svg * {
+  transition: stroke 0.35s ease, fill 0.35s ease;
+}
+
+.ux-browser-header {
+  background-color: #1E232D;
+  color: #FFFFFF;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ux-browser-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ux-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.ux-dot.red { background-color: #EF4444; }
+.ux-dot.yellow { background-color: #F59E0B; }
+.ux-dot.green { background-color: #10B981; }
+
+.ux-url-bar {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 3px 12px;
+  font-size: 0.725rem;
+  color: #CBD5E1;
+  font-family: 'JetBrains Mono', monospace;
+  flex: 1;
+  max-width: 480px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ux-frame-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+/* 7. Wireframe & Blueprint Dedicated Containers (Handled via dedicated component renderers) */
+.ux-wireframe-container {
+  background-color: #F8FAFC;
+  color: #0F172A;
+}
+
+.ux-blueprint-container {
+  background-color: #070D18;
+  color: #38BDF8;
+}
+
+/* 8. AI Prompt Editor & Inspector Bar */
+.ux-editor-strip {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 9. User Journey Sequence Flow */
+.ux-journey-track {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.ux-journey-node {
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  min-width: 180px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ux-journey-node:hover {
+  border-color: var(--border-medium);
+  background-color: var(--bg-card-hover);
+}
+
+.ux-journey-node.active {
+  border: 2px solid var(--accent-amber);
+  background-color: var(--bg-surface);
+}
+
+/* 10. Traceability & Quality Matrix */
+.ux-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.ux-matrix-table th {
+  background-color: var(--bg-subtle);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ux-matrix-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+/* 11. Modal Overlays */
+.ux-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 16px;
+}
+
+.ux-modal-dialog {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  max-width: 560px;
+  width: 100%;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 12. Micro-interactions and Spinners */
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 13. Mobile and Tablet Responsive Styles */
+@media (max-width: 767px) {
+  .ux-header-card {
+    padding: 16px;
+  }
+
+  .ux-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .ux-header-actions .btn {
+    flex: 1;
+    min-height: 44px;
+  }
+
+  .ux-header-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .ux-segmented-control {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .ux-seg-btn {
+    min-height: 40px;
+    padding: 6px 10px;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .ux-modal-dialog {
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    margin-top: auto;
+    margin-bottom: 0;
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    padding-bottom: calc(var(--sab, 0px) + 20px);
+  }
+
+  .ux-matrix-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ux-matrix-table {
+    min-width: 600px;
+  }
+}

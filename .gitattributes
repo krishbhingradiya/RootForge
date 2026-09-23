@@ -1,0 +1,35 @@
+# Set default behavior to automatically normalize line endings
+* text=auto eol=lf
+
+# Explicitly declare text files you want to always be normalized and converted to native line endings on checkout
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.prisma text eol=lf
+
+# Windows batch files must retain CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell scripts
+*.ps1 text eol=crlf
+
+# Shell scripts must retain LF
+*.sh text eol=lf
+
+# Denote binary files to prevent git from modifying line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
+*.db binary
+*.sqlite binary
+*.node binary

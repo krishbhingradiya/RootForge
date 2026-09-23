@@ -1,0 +1,720 @@
+================================================================================
+ROOTFORGE: AI SOLUTION BUILDER ENTERPRISE PLATFORM
+PROJECT STATUS, ARCHITECTURAL ANALYSIS & COMPLETE SYSTEM SPECIFICATION
+(Optimized for Large Language Models / GPT Context Ingestion)
+================================================================================
+Generated Date: September 2026
+Repository Name: rootforge
+Author/Owner: RootForge Engineering Team
+Language/Stack: JavaScript (Node.js Express + React 18 / Vite / Prisma ORM / SQLite)
+Primary Artifact: /PROJECT_OVERVIEW_FOR_GPT.txt
+================================================================================
+
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. EXECUTIVE PROJECT OVERVIEW & VALUE PROPOSITION
+2. WHERE THE PROJECT HAS REACHED (CURRENT MATURITY & COMPLETION STATUS)
+3. END-TO-END APPLICATION FLOW & USER JOURNEY (STAGE-BY-STAGE)
+4. FULL TECHNICAL STACK & ARCHITECTURE
+5. COMPREHENSIVE BREAKDOWN OF WHAT IS WORKING (FEATURE-BY-FEATURE)
+6. REAL IMPLEMENTATIONS VS. SIMULATED / MOCKED COMPONENTS
+7. COMPLETE INVENTORY OF SEED & DUMMY DATA (ACCOUNTS, WORKSPACE, ARTIFACTS)
+8. CODEBASE FILE TREE & KEY MODULE DIRECTORY MAP
+9. HOW TO RUN, SEED & TEST LOCALLY
+10. RECOMMENDED NEXT STEPS & EXTENSION ROADMAP FOR FUTURE DEVELOPMENT
+
+
+================================================================================
+1. EXECUTIVE PROJECT OVERVIEW & VALUE PROPOSITION
+================================================================================
+
+WHAT IS ROOTFORGE?
+RootForge (AI Solution Builder) is an enterprise-grade digital transformation and 
+solution architecture workbench. It is engineered specifically for Management 
+Consultants, Principal Solution Architects, Enterprise IT Leaders, and Product 
+Strategists.
+
+THE PROBLEM IT SOLVES:
+In enterprise consulting and technology architecture engagements, formulating a 
+cohesive solution from ambiguous business problems typically takes 4 to 8 weeks 
+of manual stakeholder interviews, disparate whiteboard drawings, Excel cost 
+estimations, Word SOP documents, and fragmented Visio/Lucidchart diagrams. 
+Requirements are frequently lost between business discovery, software 
+architecture, UX design, and database schema creation.
+
+THE ROOTFORGE SOLUTION:
+RootForge unifies the entire consulting lifecycle into an interconnected, 8-stage 
+advisory workbench. An operator or enterprise stakeholder enters a business 
+challenge (or uploads internal SOPs/audit PDFs), and the platform guides them 
+through an AI-augmented progression:
+
+  [Stage 1: Discovery & Document Ingestion]
+         │
+         ▼
+  [Stage 2: Business Analysis & Digital Maturity]
+         │
+         ▼
+  [Stage 3: Solution Recommendation & Options Comparison (A / B / C)]
+         │
+         ▼
+  [Stage 4: System Architecture & Topology Canvas]
+         │
+         ▼
+  [Stage 5: Target Process Workflow & Decision Gate Modeling]
+         │
+         ▼
+  [Stage 6: UX Wireframe Studio & Hi-Fi Interactive Simulator]
+         │
+         ▼
+  [Stage 7: Database Relational Model (ERD) & REST API Blueprint]
+         │
+         ▼
+  [Stage 8: Implementation Planning, Sprint Roadmap & Cost Estimations]
+         │
+         ▼
+  [Governance: Cross-stage Approvals, Version Snapshots & Multi-format Export]
+
+CORE PHILOSOPHY:
+- Advisory & Human-in-the-Loop: RootForge does not treat AI as an unchecked black box. 
+  Every stage acts as an advisory baseline that human architects can edit, refine, 
+  approve, or snapshot into immutable versions.
+- Deterministic Reliability: Out-of-the-box, the system operates on a specialized 
+  domain-aware deterministic intelligence engine. Even without external OpenAI or 
+  Gemini API keys configured, it generates domain-accurate enterprise artifacts. 
+  External LLMs can be seamlessly plugged in via standard environment variables.
+- Tri-lingual Enterprise Ready: The entire user interface, navigation, alerts, 
+  and core advisory feedback natively support English (en), Hindi (hi), and Gujarati (gu).
+
+
+================================================================================
+2. WHERE THE PROJECT HAS REACHED (CURRENT MATURITY & COMPLETION STATUS)
+================================================================================
+
+MILESTONE REACHED:
+The project has successfully reached a FUNCTIONING, PRODUCTION-READY V1 FULL-STACK MVP.
+Both the frontend and backend are fully integrated, communicating via REST endpoints, 
+and connected to a persistent relational database managed by Prisma ORM.
+
+SUMMARY OF COMPLETION LEVEL BY SYSTEM:
+
+1. Public Experience & Onboarding: 100% Complete
+   - Immersive Landing Page with live hero interactive solution generator, dynamic 
+     sticky navigation, visual product showcase, and one-click demo login.
+   - Authentication system with Login, Register, Forgot Password, and demo switcher.
+
+2. Navigation & Application Shell: 100% Complete
+   - Responsive sidebar with active workspace context, progress percentage trackers, 
+     and direct stage navigation.
+   - Top navigation bar featuring real-time workspace switcher, global language 
+     selector (EN/HI/GU), theme toggle (Dark/Light), user profile menu, and AI Consultant drawer toggle.
+   - Role-Based Access Control (RBAC) protecting consultant and admin routes.
+
+3. Core Solution Lifecycle (Stages 1 to 8): 100% Complete
+   - Discovery Page: Live conversation feed, prompt suggestions, document uploader.
+   - Business Analysis: Auto-synthesis, digital maturity gauge, stakeholder matrix, 
+     editable requirements, and sign-off workflow.
+   - Solution Builder: Automated generation of 3 distinct strategic options (A/B/C), 
+     comparison grid, selected strategy toggle, risks & assumptions editor.
+   - Architecture Page: Interactive visual node canvas (6 tiers, 7 default nodes), 
+     drag/edit positions, add custom nodes, High-Level Design (HLD), Low-Level Design (LLD), 
+     Security, and Integrations tab views.
+   - Process Designer: Multi-view modeling (Workflow, Swimlane, Decision Tree), 
+     step reordering, step editor, and versioning.
+   - UX Designer Studio: Highly advanced 85KB module with Desktop/Tablet/Mobile viewports, 
+     Hi-Fi live website simulation vs. Wireframe blueprint mode, 6 selectable design 
+     archetypes, interactive ticket triage simulator, rule toggles, and ROI calculator.
+   - Database & API Designer: Relational entity dictionary, SQL DDL export, Prisma 
+     schema output, and enterprise REST API endpoint blueprint.
+   - Implementation Planner: 12-week Agile sprint roadmap, Phase breakdown, interactive 
+     task checklist with status toggles (TODO -> IN_PROGRESS -> COMPLETED), and task creation modal.
+
+4. Governance, Collaboration & Administration: 100% Complete
+   - Collaboration Hub: Contextual commenting per artifact, formal sign-off approvals, 
+     immutable system activity logs, and artifact version restoration.
+   - Export Center: Instant one-click exports to Markdown (.md), HTML Executive Report 
+     (printable to PDF via browser print dialogue), raw JSON architecture bundle, and CSV sprint tasks.
+   - Admin Dashboard: Platform-wide telemetry (Total users, orgs, workspaces, memory 
+     heap, uptime), and user role management (promote/demote roles).
+   - Global AI Consultant Drawer: Slide-out persistent copilot accessible across any 
+     route, providing advice in English, Hindi, or Gujarati.
+
+
+================================================================================
+3. END-TO-END APPLICATION FLOW & USER JOURNEY (STAGE-BY-STAGE)
+================================================================================
+
+Here is the exact operational flow of how a user interacts with RootForge:
+
+STEP 1: LANDING & AUTHENTICATION
+  - User visits "/" (Landing Page).
+  - Can test an interactive challenge in the hero section ("Our customer support team 
+    spends too much time manually classifying requests...").
+  - User clicks "Explore Live Demo" or logs in at "/login" using pre-seeded credentials 
+    or custom registration.
+  - JWT token and user profile are persisted to `localStorage` (`aisb_token`, `aisb_user`).
+
+STEP 2: WORKSPACE SELECTION OR CREATION
+  - User enters "/app/workspaces" (Workspace List Page).
+  - Displays all existing workspaces with their industry badge, status, and artifact counts.
+  - User can click "Create Workspace" modal (entering Name, Objective, Challenge, Industry, 
+    Target Users, Expected Outcome) OR click into the pre-seeded "Customer Support Transformation" workspace.
+
+STEP 3: WORKSPACE OVERVIEW DASHBOARD
+  - Navigates to "/app/workspaces/:id" (Workspace Overview Page).
+  - Displays Executive Header Banner, industry categorization, and current progress.
+  - Displays 5 Assessment Scores: Digital Maturity (68%), AI Readiness (84%), Solution 
+    Readiness (88%), Architecture Readiness (92%), Implementation Readiness (85%).
+  - Shows 8 stage progress cards with status indicators (COMPLETED, NOT_STARTED, IN_PROGRESS).
+  - Allows uploading internal enterprise PDF/DOCX files directly.
+  - Displays next suggested action ("All stages ready. Review with stakeholders and export complete solution.").
+
+STEP 4: STAGE 1 — DISCOVERY & DOCUMENT INGESTION
+  - Route: "/app/workspaces/:id/discovery"
+  - User converses with the AI Business Consultant.
+  - System dynamically provides context-aware suggested questions (e.g., "What is the 
+    current distribution of inbound volume across email, portal, chat, and phone?").
+  - User types answers or clicks pre-built prompts.
+  - User uploads PDF documents (e.g., standard operating procedures, vendor reports). 
+    Backend extracts text using `pdf-parse` and sets status to "ANALYZED".
+
+STEP 5: STAGE 2 — BUSINESS ANALYSIS
+  - Route: "/app/workspaces/:id/analysis"
+  - User clicks "Synthesize Analysis" (or views seeded analysis).
+  - AI synthesizes: Current State, Future State, 5 Strategic Goals, 4 Pain Points, 
+    4 Stakeholder Personas, 5 Functional/Technical Requirements, 3 Gaps, and 4 Automation Opportunities.
+  - User can enter "Edit Mode" to modify any text field, adjust Digital Maturity score (slider), 
+    and save updates to the database.
+  - User can submit formal approval sign-off.
+
+STEP 6: STAGE 3 — SOLUTION RECOMMENDATION
+  - Route: "/app/workspaces/:id/solution"
+  - Formulates 3 comparative strategic alternatives:
+      * Option A: Workflow Rules Engine Automation (Fastest, low cost, 35% automation)
+      * Option B: AI-Assisted Support Platform (Recommended, balanced ROI, 70% automation)
+      * Option C: Full Autonomous Enterprise Overhaul (Transformational, high risk/cost, 90% automation)
+  - User selects their preferred strategy (updates `selectedOption` in database).
+  - Explores Tech Stack breakdown (React, Express, PostgreSQL/SQLite, Pluggable AI, REST Gateways).
+  - Evaluates Implementation Risks and Mitigation strategies.
+
+STEP 7: STAGE 4 — SOLUTION ARCHITECTURE CANVAS
+  - Route: "/app/workspaces/:id/architecture"
+  - Interactive visual architecture map organized across 6 architectural tiers:
+      1. Client Layer (Web App, Mobile Portal)
+      2. Gateway Layer (API Gateway & Security Proxy)
+      3. Application Services (Core Workflow Engine)
+      4. AI & Automation (Pluggable AI Dispatcher)
+      5. Persistence Layer (Transactional Relational DB)
+      6. Integrations Layer (Legacy ERP / Cloud Webhooks)
+  - Interactive nodes display technology badges and network connection lines.
+  - User can click any node to view/edit details, or click "+ Add Component" to insert 
+    custom services.
+  - Tabs provide textual documentation for HLD, LLD, Security, and Integrations.
+  - User can snapshot the topology as a new version.
+
+STEP 8: STAGE 5 — PROCESS DESIGNER
+  - Route: "/app/workspaces/:id/process"
+  - Models business processes across 3 distinct perspectives:
+      * Workflow View: Linear sequential step cards with condition badges and step re-ordering.
+      * Swimlane View: Categorized by actors (Customer, AI Engine, System Rules, Supervisor, Frontline Operator).
+      * Decision Tree View: Highlights conditional routing logic (e.g., "Confidence >= 80%", "Evaluate: High vs Normal Priority").
+  - User can add new steps, edit existing steps, or delete steps.
+
+STEP 9: STAGE 6 — UX WIREFRAME STUDIO & LIVE SIMULATOR
+  - Route: "/app/workspaces/:id/ux"
+  - Viewport Switcher: Desktop (100%), Tablet (768px), Mobile (375px frame with simulated status bar).
+  - Mode Switcher: Hi-Fi Interactive UI (simulating the actual built software) vs. Wireframe Blueprint.
+  - 6 Design Archetypes: "Modern SaaS", "Enterprise Slate", "Cyber Operations", 
+    "Warm Luxury", "Nordic Minimal", "FinTech Violet".
+  - Live Interactive Capabilities:
+      * Executive Dashboard with simulated KPI metric cards and triage speed charts.
+      * Operator Workspace with a live clickable ticket queue (TCK-1049, TCK-1050, etc.).
+      * AI Copilot Drawer simulating draft customer response generation with 1-click approval.
+      * Live Customer Chatbot simulator where users can type inquiries and receive auto-responses.
+      * Live Routing Rule Editor with toggle switches.
+      * Interactive ROI & Cost-Savings Calculator with monthly ticket volume slider.
+
+STEP 10: STAGE 7 — DATABASE & API DESIGNER
+  - Route: "/app/workspaces/:id/database"
+  - Tab 1 (Data Model & ERD): Interactive entity dictionary (User, Customer, Ticket, Department), 
+    field data types, primary keys, and foreign key relations.
+  - Tab 2 (SQL DDL): Formatted SQL schema ready to execute in PostgreSQL or SQLite.
+  - Tab 3 (Prisma Schema): Formatted Prisma schema ready to drop into backend codebases.
+  - Tab 4 (REST API Blueprint): 4 complete endpoint specifications (`POST /api/v1/tickets`, 
+    `GET /api/v1/tickets`, `GET /api/v1/tickets/:id`, `POST /api/v1/tickets/:id/resolve`) with 
+    auth headers, request JSON bodies, and response JSON schemas.
+
+STEP 11: STAGE 8 — IMPLEMENTATION PLANNER
+  - Route: "/app/workspaces/:id/planning"
+  - 12-week Agile Roadmap broken down into 5 phases:
+      Phase 1: Discovery & Architecture Alignment (2 Weeks)
+      Phase 2: Core Platform & Ingestion Engine (3 Weeks)
+      Phase 3: AI Intelligence & Copilot Workspace (3 Weeks)
+      Phase 4: Integration & End-to-End Validation (2 Weeks)
+      Phase 5: Staged Rollout & Operational Handoff (2 Weeks)
+  - Toggle between Gantt-style Timeline view and tabular Task List view.
+  - Interactive status toggles for tasks (TODO, IN_PROGRESS, COMPLETED).
+  - Ability to add new tasks assigned to specific roles (Architect, BA, Backend Dev, QA).
+
+STEP 12: COLLABORATION, AUDIT TRAIL & REVISION HISTORY
+  - Route: "/app/workspaces/:id/collaboration"
+  - Post comments tagged by artifact type (Solution, Architecture, Database, General).
+  - Submit formal stakeholder sign-offs (Pending, Approved, Rejected).
+  - View immutable chronological activity log of all workspace modifications.
+  - View and restore prior snapshot versions of any artifact.
+
+STEP 13: EXPORT CENTER & DELIVERABLE GENERATION
+  - Route: "/app/workspaces/:id/exports"
+  - Generates comprehensive deliverables across 4 formats:
+      1. Markdown Dossier (.md): Complete 8-stage documentation ready for GitHub/GitLab.
+      2. Executive Printable Report (.html): Styled dossier with print styles, opening in 
+         a new window for 1-click Save-as-PDF.
+      3. Complete Architecture JSON (.json): Complete serialized workspace bundle for machine parsing.
+      4. Sprint Task Spreadsheet (.csv): Implementation tasks formatted for Jira/Excel import.
+
+
+================================================================================
+4. FULL TECHNICAL STACK & ARCHITECTURE
+================================================================================
+
+FRONTEND:
+  - Framework: React 18.3.1 (SPA) built with Vite 6.0.1
+  - Routing: React Router DOM 6.28.0 (Nested layouts, ProtectedRoute, AdminRoute)
+  - Styling System: Pure Vanilla CSS with CSS Custom Properties (Design Tokens) in `index.css`.
+    * No Tailwind CSS bloat. Clean semantic token architecture:
+      --bg-canvas, --bg-surface, --text-primary, --accent-amber, --accent-green, --border-subtle.
+    * Full responsive grid and flexbox utility structure.
+  - Iconography: Lucide React (over 40 contextual icons utilized)
+  - Animation & Polish: Framer Motion + Canvas Confetti (for approvals and milestones)
+  - State Architecture: Lightweight React Context API:
+      * AuthContext.jsx: User session, login, register, demo login, logout.
+      * WorkspaceContext.jsx: Current active workspace, stage status, global selector.
+      * LanguageContext.jsx: Trilingual localization state with 124KB dictionary (`translations.js`).
+      * ThemeContext.jsx: Dark Mode / Light Mode toggle with `html[data-theme]` attributes.
+  - API Client: Centralized wrapper in `frontend/src/services/api.js` handling Bearer JWT 
+    headers, multipart FormData for file uploads, and 401 token refresh redirects.
+
+BACKEND:
+  - Runtime: Node.js (ES Modules, `"type": "module"`)
+  - Server Framework: Express 4.21.1
+  - Database ORM: Prisma ORM 5.22.0
+  - Database Engine: SQLite (`backend/prisma/dev.db`) in local development; fully compatible 
+    with PostgreSQL for production deployment via `DATABASE_URL`.
+  - Security & Auth:
+      * Bcryptjs (10 salt rounds) for password hashing.
+      * JsonWebToken (JWT) with Bearer token authentication middleware (`auth.js`).
+      * Role-Based Access Control (`requireRole('ADMIN')`, `requireRole(['CONSULTANT', 'ADMIN'])`).
+      * CORS enabled for frontend Vite dev server (`http://localhost:5175`).
+  - File Uploads & Document Ingestion:
+      * Multer for file handling (`uploads/` directory).
+      * `pdf-parse` for automated extraction of raw text from uploaded PDF documents.
+
+AI & INTELLIGENCE ARCHITECTURE:
+  - Location: `backend/src/ai/`
+  - Dual-Mode Provider Abstraction:
+      1. Deterministic Demo Provider (`backend/src/ai/providers/demoProvider.js` - 45KB):
+         * Detects domain themes (Customer Support, Supply Chain, FinTech/Claims, Healthcare, HR Operations).
+         * Generates comprehensive, contextual discovery questions, business analyses, 
+           options comparisons, architecture nodes, process steps, wireframe schemas, 
+           and sprint tasks dynamically based on workspace name, objective, challenge, 
+           and uploaded documents.
+      2. External Provider Adapter (`backend/src/ai/providers/externalProvider.js`):
+         * OpenAI / Gemini / Anthropic compatible HTTP adapter.
+         * Activates automatically if `AI_PROVIDER` is set and `AI_API_KEY` is provided in `.env`.
+
+
+================================================================================
+5. COMPREHENSIVE BREAKDOWN OF WHAT IS WORKING (FEATURE-BY-FEATURE)
+================================================================================
+
+[AUTHENTICATION & USERS]
+- User Registration (with auto-created Organization)
+- User Login (JWT generation)
+- Demo Account 1-Click Login (Elena Rostova - Admin, Marcus Vance - Consultant, etc.)
+- Session Validation (`GET /api/auth/me`)
+- Role Guarding (Admin Dashboard restricted to `role === 'ADMIN'`)
+
+[WORKSPACE MANAGEMENT]
+- List Workspaces with live artifact counts and stage progression badges
+- Create Workspace with rich metadata (Objective, Challenge, Industry, Target Users)
+- Edit Workspace Metadata
+- Delete Workspace
+- Real-time Assessment Scores & Dashboard Telemetry (`GET /api/workspaces/:id/dashboard`)
+
+[DOCUMENT PROCESSING]
+- File upload supporting PDF and DOCX
+- Automated text extraction via `pdf-parse`
+- Document status transitions (`UPLOADED` -> `PROCESSING` -> `ANALYZED`)
+- In-browser document text preview modal
+- Document deletion
+
+[DISCOVERY ENGINE]
+- AI Consultant chat feed with persistent conversation history in SQLite
+- Dynamic discovery prompt recommendations based on workspace domain
+- Live message exchange with contextual assistant responses
+
+[BUSINESS ANALYSIS WORKBENCH]
+- Auto-generation of structured analysis
+- Interactive editing for Current State, Future State, Strategic Goals, Pain Points, Requirements
+- Digital Maturity Score visual ring and slider adjustment (0-100)
+- Automation Opportunity impact/effort matrix
+- Formal approval sign-off with audit logging
+
+[SOLUTION BUILDER]
+- Automated generation of 3 distinct strategic options (A, B, C)
+- Strategy comparison matrix (Complexity, Cost, Duration, Risk, Pros/Cons)
+- 1-click active strategy selection
+- Tech stack specification editor
+- Risk mitigation table
+
+[ARCHITECTURE DESIGNER]
+- 2D Canvas rendering 6 architectural tiers
+- Nodes positioned dynamically with technology badges and labels
+- Dynamic connection lines (edges) with protocol labels (REST, SQL, Internal)
+- Modal to add custom nodes or edit existing node configurations
+- Version snapshot creation
+
+[PROCESS DESIGNER]
+- Multi-mode switcher: Linear Workflow, Actor Swimlanes, Decision Tree
+- Step reordering (Move Up / Move Down)
+- Modal to add new process step or edit step metadata
+- Actor attribution (Customer, AI Engine, System Rules, Supervisor, Frontline Operator)
+- Version snapshot creation
+
+[UX DESIGNER STUDIO (85KB FLAGSHIP)]
+- Multi-device viewport preview (Desktop, Tablet 768px, Mobile 375px frame)
+- Render mode toggle (Hi-Fi Live Software Simulation vs. Wireframe Blueprint)
+- 6 Theme Archetypes (Modern SaaS, Slate, Cyber Ops, Luxury, Nordic, FinTech)
+- 4 Simulated Screen Mockups:
+    1. Executive Dashboard (KPI cards, throughput charts, SLA health)
+    2. Operator Case Workspace (Live interactive ticket queue, customer history)
+    3. Supervisory & Rules Console (Routing rule toggles, team capacity)
+    4. Analytics & Reporting (Cycle time trends, cost-per-ticket metrics)
+- Interactive features: Clickable ticket triage, live AI Copilot draft response generator, 
+  functional interactive chatbot, live rule toggles, interactive ROI savings calculator.
+
+[DATABASE & API BLUEPRINT]
+- Entity-relationship data model with primary/foreign key definitions
+- SQL DDL syntax generator (PostgreSQL/SQLite compatible)
+- Prisma ORM schema generator
+- Enterprise REST API Blueprint with 4 detailed endpoints, JSON payloads, and auth requirements
+
+[IMPLEMENTATION ROADMAP]
+- 12-week Agile schedule with 5 distinct phases
+- Gantt-style timeline visualization + Table view
+- Interactive task status toggling (TODO -> IN_PROGRESS -> COMPLETED)
+- Modal to add custom sprint tasks with assigned roles and risk levels
+
+[COLLABORATION & GOVERNANCE]
+- Commenting system filtered by artifact type
+- Formal approval workflow (Pending / Approved / Rejected) with timestamps
+- Immutable Activity Audit Trail recording all platform actions
+- Version snapshot history with 1-click restoration
+
+[EXPORT CENTER]
+- Markdown (.md) generation and immediate browser download
+- HTML Executive Dossier opening in a new printable window
+- Architecture JSON bundle (.json) download
+- Sprint Tasks CSV (.csv) download
+- Export history logging
+
+
+================================================================================
+6. REAL IMPLEMENTATIONS VS. SIMULATED / MOCKED COMPONENTS
+================================================================================
+
+To ensure total clarity for developers and LLMs, here is the exact boundary between 
+what is fully operational and what is simulated:
+
+WHAT IS FULLY REAL & OPERATIONAL:
+  ✓ Real Express REST API backend running on Node.js (Port 5005).
+  ✓ Real SQLite relational database via Prisma ORM (`backend/prisma/dev.db`).
+  ✓ Real JWT authentication, token decoding, and bcrypt password verification.
+  ✓ Real file system uploads (Multer) and real PDF text extraction (`pdf-parse`).
+  ✓ Real database persistence for all created/updated workspaces, analyses, solutions, 
+    architecture nodes, process steps, tasks, comments, approvals, and versions.
+  ✓ Real file downloads generated dynamically on the fly (Markdown, JSON, CSV).
+  ✓ Real trilingual internationalization switching on-the-fly (English, Hindi, Gujarati).
+  ✓ Real CSS dark mode and light mode switching.
+
+WHAT IS SIMULATED / MOCKED / HEURISTIC:
+  ~ Default AI Generation Engine: Uses `demoProvider.js` (deterministic rules and 
+    domain-tailored templates) unless the user adds an `AI_API_KEY` in `.env` or Settings.
+  ~ Third-Party Enterprise Systems: In the Customer Support workspace, integrations 
+    with "Shopify ERP", "Zendesk", and "Salesforce" are modeled as architectural 
+    blueprints and UI simulator mockups; there is no live outbound HTTP call to a real Shopify store.
+  ~ Real-Time Collaboration: Comments, approvals, and activity logs update on page 
+    load and user submission via REST. There is no WebSocket / Socket.io server.
+  ~ PDF Generation: Instead of compiling PDFs via heavy server-side headless browsers 
+    (Puppeteer), RootForge generates a standalone, styled HTML document that utilizes 
+    standard browser print stylesheets (`@media print`) for 1-click PDF printing.
+
+
+================================================================================
+7. COMPLETE INVENTORY OF SEED & DUMMY DATA (ACCOUNTS, WORKSPACE, ARTIFACTS)
+================================================================================
+
+All seed data is populated via `backend/prisma/seed.js` (852 lines of curated data).
+
+1. DEMO ORGANIZATION:
+   - ID: Auto-generated CUID
+   - Name: "Acme Retail Global"
+   - Industry: "Retail & Consumer Goods"
+
+2. SEED USERS & CREDENTIALS:
+   All accounts are hashed with bcrypt (10 rounds):
+   ┌──────────────────────────────────┬─────────────────┬────────────┬─────────────────────────────┐
+   │ Email                            │ Password        │ Role       │ Full Name / Title           │
+   ├──────────────────────────────────┼─────────────────┼────────────┼─────────────────────────────┤
+   │ demo@aisolutionbuilder.dev       │ Solution@2026   │ ADMIN      │ Elena Rostova (Transf. Lead)│
+   │ consultant@aisolutionbuilder.dev │ Consultant@2026 │ CONSULTANT │ Marcus Vance (Princ. Arch.) │
+   │ analyst@aisolutionbuilder.dev    │ Analyst@2026    │ ANALYST    │ Anita Desai (Sr. BA)        │
+   │ viewer@aisolutionbuilder.dev     │ Viewer@2026     │ VIEWER     │ David Chen (Stakeholder)    │
+   └──────────────────────────────────┴─────────────────┴────────────┴─────────────────────────────┘
+
+3. DEMO WORKSPACE:
+   - ID: "ws-demo-customer-support"
+   - Name: "Customer Support Transformation"
+   - Industry: "Retail & Omnichannel Commerce"
+   - Status: "PLANNING"
+   - isDemo: true
+   - Objective: "Reduce manual customer support operations by 65% and eliminate ticket triage delays."
+   - Challenge: "Customer support requests arrive through email, web forms and other channels. Agents manually categorize requests, assign departments and track resolutions. Management has limited real-time visibility."
+   - Target Users: "Tier-1 & Tier-2 Support Specialists, Department Supervisors, Store Operations, Retail Shoppers"
+   - Expected Outcome: "Automated intent classification, dynamic skill-based ticket routing, AI copilot responses, sub-hour turnaround time."
+
+4. SEED DOCUMENTS:
+   - Document 1: `acme_support_sop_v2.pdf` (428 KB, Status: ANALYZED)
+     Text: "Standard Operating Procedure: Incoming requests from customers are triaged within 4 hours. Priority 1 issues must be escalated to shift leads within 30 minutes..."
+   - Document 2: `channel_volume_q3_report.docx` (312 KB, Status: ANALYZED)
+     Text: "Inbound breakdown: 54% order status and returns, 26% billing discrepancies, 14% product inquiries, 6% vendor warranty disputes. Average resolution time: 18.2 hours."
+
+5. SEED BUSINESS ANALYSIS:
+   - Digital Maturity Score: 68 / 100
+   - Current State: Manual triage, 18.2 hr resolution average, fragmented tools.
+   - Future State: AI classification within 3s, order lookup via ERP, operator copilot.
+   - 5 Strategic Goals:
+     1. Achieve 65%+ automated straight-through resolution for order inquiries
+     2. Reduce average first-response latency from 4.2 hours to under 3 minutes
+     3. Provide real-time executive dashboard for SLA health and agent utilization
+     4. Standardize resolution consistency using verified knowledge base citations
+     5. Lower operational support cost per ticket by 40% in year one
+   - 4 Pain Points:
+     1. 30% of agent time spent reading and tagging tickets
+     2. Misrouted tickets between Logistics, Billing, and Store Ops (2-day delay)
+     3. No unified customer timeline across separate CRM, Shopify, and inbox records
+     4. Weekend volume spikes causing SLA breaches
+   - 4 Automation Opportunities:
+     1. Intelligent Inbound Triage (High Impact, Low Effort, 75% triage time savings)
+     2. Self-Service Order Tracking Bot (High Impact, Medium Effort, 50% ticket deflection)
+     3. Automated Billing Credit Approvals (Medium Impact, Low Effort, 90% refund delay reduction)
+     4. Predictive Churn Risk Flagging (High Impact, Medium Effort, 30% VIP retention boost)
+
+6. SEED SOLUTION OPTIONS (A, B, C):
+   - Option A: "Workflow Rules Engine Automation" ($60k-$85k, 6-8 weeks, 35% automation)
+   - Option B: "AI-Assisted Support Platform (Recommended)" ($160k-$210k, 12-14 weeks, 70% automation, Selected: YES)
+   - Option C: "Full Autonomous Enterprise Overhaul" ($480k-$650k, 24-32 weeks, 90% automation)
+
+7. SEED ARCHITECTURE TOPOLOGY:
+   7 Nodes across 6 Tiers:
+   - node-client: "Executive & Operator Web App" (React 18 / Vite, Tier: Client Layer)
+   - node-mobile: "Supervisor Mobile / Tablet Portal" (PWA, Tier: Client Layer)
+   - node-gateway: "API Gateway & Security Proxy" (Express / Nginx / SSL, Tier: Gateway Layer)
+   - node-core-service: "Core Workflow & Solution Engine" (Node.js Express / Prisma, Tier: Application Services)
+   - node-ai-service: "AI & Automation Dispatcher" (Pluggable AI Provider, Tier: AI & Automation)
+   - node-database: "Transactional Relational Database" (PostgreSQL / SQLite 3NF, Tier: Persistence)
+   - node-integrations: "Enterprise Legacy & Cloud Integrations" (REST / Webhooks, Tier: Integrations)
+   7 Directed Network Edges connecting Client -> Gateway -> Services -> Database/Integrations.
+
+8. SEED PROCESS WORKFLOW NODES:
+   Step 1 (START): "Customer Request Ingestion" (Actor: Customer / Channel)
+   Step 2 (AUTOMATION): "AI Intent & Sentiment Classification" (Actor: AI Engine, Cond: "Confidence >= 80%")
+   Step 3 (DECISION): "Priority & Risk Decision Gate" (Actor: System Rules, Cond: "Evaluate: High vs Normal")
+   Step 4 (APPROVAL): "Manager Approval & Escalation" (Actor: Supervisor, Cond: "If High Priority / VIP")
+   Step 5 (STEP): "Skill-Based Operator Routing" (Actor: System Dispatcher, Cond: "If Normal Priority")
+   Step 6 (STEP): "Copilot-Assisted Operator Resolution" (Actor: Frontline Operator, Cond: "Human-in-the-Loop")
+   Step 7 (NOTIFICATION): "Stakeholder Notification & Survey" (Actor: System, Cond: "Immediate")
+   Step 8 (END): "Ticket Closed & SLA Telemetry Logged" (Actor: Transformation Database, Cond: "Final State")
+
+9. SEED DATABASE ENTITIES & RELATIONS:
+   - User (id, email, name, role)
+   - Customer (id, name, email, tier)
+   - Ticket (id, ticketNumber, customerId, assignedUserId, status, priority, aiClassification, aiConfidence)
+   - Department (id, name, slaHours)
+   - Includes full executable SQL DDL statements and Prisma schema definitions.
+
+10. SEED REST API BLUEPRINT:
+   - POST /api/v1/tickets (Inbound ticket ingestion + AI classification)
+   - GET /api/v1/tickets (Filtered ticket queue with pagination & SLA remaining minutes)
+   - GET /api/v1/tickets/:id (Ticket detail with AI recommendation snippet)
+   - POST /api/v1/tickets/:id/resolve (Ticket resolution with credit memo parameters)
+
+11. SEED IMPLEMENTATION TASKS:
+   - Task 1: "Finalize Classification Taxonomy with Tier-1 Leads" (Phase 1, Sprint 1, COMPLETED)
+   - Task 2: "Architecture & Security Perimeter Sign-off" (Phase 1, Sprint 1, COMPLETED)
+   - Task 3: "Deploy PostgreSQL 3NF Schema & Ingestion Endpoints" (Phase 2, Sprint 2, IN_PROGRESS)
+   - Task 4: "Configure AI Intent Triage & Copilot Workspace" (Phase 3, Sprint 3, TODO)
+   - Task 5: "Conduct Pilot UAT with 25 Support Operators" (Phase 4, Sprint 4, TODO)
+
+
+================================================================================
+8. CODEBASE FILE TREE & KEY MODULE DIRECTORY MAP
+================================================================================
+
+rootforge/
+├── package.json                         # Root scripts (npm run dev, dev:backend, dev:frontend)
+├── PROJECT_OVERVIEW_FOR_GPT.txt         # This file
+│
+├── backend/                             # Express REST API Server
+│   ├── .env                             # Port 5005, DB URL, JWT secret, AI Provider
+│   ├── package.json                     # Express, Prisma, bcrypt, jwt, multer, pdf-parse
+│   ├── prisma/
+│   │   ├── schema.prisma                # 16 Relational Models
+│   │   ├── dev.db                       # Local SQLite database file
+│   │   └── seed.js                      # 852-line master seed script
+│   └── src/
+│       ├── server.js                    # Express server entry point (Port 5005)
+│       ├── prisma.js                    # PrismaClient singleton instance
+│       ├── ai/
+│       │   ├── aiService.js             # AI Service abstraction layer
+│       │   └── providers/
+│       │       ├── demoProvider.js      # 45KB Domain-aware deterministic AI engine
+│       │       └── externalProvider.js  # OpenAI / Gemini / Anthropic HTTP adapter
+│       ├── middleware/
+│       │   ├── auth.js                  # JWT token verify & RBAC role checks
+│       │   └── upload.js                # Multer diskStorage config
+│       ├── routes/                      # 16 Modular Express Route Handlers
+│       │   ├── admin.routes.js          # Platform telemetry & user role management
+│       │   ├── analysis.routes.js       # Business Analysis synthesis & updates
+│       │   ├── api.routes.js            # API blueprint endpoints
+│       │   ├── architecture.routes.js   # Architecture nodes & edges CRUD
+│       │   ├── auth.routes.js           # Login, Register, Current User
+│       │   ├── collaboration.routes.js  # Comments, approvals, activity logs
+│       │   ├── database.routes.js       # ERD entity modeling & SQL generation
+│       │   ├── discovery.routes.js      # AI chat conversation & dynamic questions
+│       │   ├── document.routes.js       # PDF/DOCX file upload & text extraction
+│       │   ├── export.routes.js         # Markdown, HTML report, JSON, CSV generation
+│       │   ├── planning.routes.js       # Implementation roadmap & sprint tasks
+│       │   ├── process.routes.js        # Workflow, swimlane, decision tree nodes
+│       │   ├── solution.routes.js       # Solution formulation & options A/B/C
+│       │   ├── ux.routes.js             # UX wireframe screens & design tokens
+│       │   ├── version.routes.js        # Artifact version snapshots & rollback
+│       │   └── workspace.routes.js      # Workspace CRUD & dashboard metrics
+│       └── utils/
+│           ├── exportGenerators.js      # Markdown and printable HTML generators
+│           └── textExtractor.js         # PDF text extraction via pdf-parse
+│
+└── frontend/                            # React 18 SPA (Vite)
+    ├── index.html                       # HTML root with fonts and meta tags
+    ├── vite.config.js                   # Port 5175, Proxy /api and /uploads to 5005
+    ├── package.json                     # React 18, React Router 6, Lucide, Framer Motion
+    └── src/
+        ├── main.jsx                     # React DOM entry point
+        ├── App.jsx                      # App Shell, Providers, Route Definitions
+        ├── index.css                    # 17KB Design System, CSS Variables, Layouts
+        ├── context/
+        │   ├── AuthContext.jsx          # User session, JWT tokens, demo accounts
+        │   ├── LanguageContext.jsx      # Trilingual state (EN, HI, GU)
+        │   ├── ThemeContext.jsx         # Dark / Light theme toggle
+        │   ├── WorkspaceContext.jsx     # Current workspace state & stages
+        │   └── translations.js          # 124KB full dictionary (EN, HI, GU)
+        ├── components/
+        │   ├── ai/
+        │   │   └── AiConsultantDrawer.jsx # Persistent slide-out AI assistant
+        │   ├── common/
+        │   │   ├── RootForgeLogo.jsx    # SVG branding logo
+        │   │   └── Toast.jsx            # Dynamic toast alert system
+        │   └── layout/
+        │       ├── AppLayout.jsx        # Protected shell with Sidebar + Navbar
+        │       ├── Navbar.jsx           # Top bar with workspace, lang, theme, user
+        │       └── Sidebar.jsx          # Left navigation with stage progress indicators
+        ├── services/
+        │   └── api.js                   # Unified REST API service wrapper
+        └── pages/
+            ├── LandingPage.jsx          # 100KB rich public landing page
+            ├── auth/                    # Login, Register, Forgot Password
+            ├── workspaces/
+            │   ├── WorkspaceListPage.jsx     # Workspace grid & creation modal
+            │   └── WorkspaceOverviewPage.jsx # Executive dashboard & stage summary
+            ├── discovery/DiscoveryPage.jsx   # Stage 1: AI Chat & Doc Ingestion
+            ├── analysis/BusinessAnalysisPage.jsx # Stage 2: Business Analysis & Maturity
+            ├── solution/SolutionBuilderPage.jsx  # Stage 3: Options A/B/C Comparison
+            ├── architecture/ArchitecturePage.jsx # Stage 4: 2D Node Canvas & HLD
+            ├── process/ProcessDesignerPage.jsx   # Stage 5: Workflow, Swimlane, Decision
+            ├── ux/UxDesignerPage.jsx             # Stage 6: 85KB Interactive Simulator
+            ├── database/DatabaseDesignerPage.jsx # Stage 7: ERD, SQL, API Blueprint
+            ├── planning/ImplementationPlannerPage.jsx # Stage 8: Agile Sprint Roadmap
+            ├── collaboration/CollaborationPage.jsx    # Governance, Approvals, Versions
+            ├── exports/ExportCenterPage.jsx           # MD, PDF/HTML, JSON, CSV Exports
+            ├── admin/AdminDashboardPage.jsx           # Admin telemetry & User roles
+            └── settings/SettingsPage.jsx              # AI Provider config & Profile
+
+
+================================================================================
+9. HOW TO RUN, SEED & TEST LOCALLY
+================================================================================
+
+PREREQUISITES:
+- Node.js >= 18.0.0
+- npm >= 9.0.0
+
+STEP 1: INSTALL DEPENDENCIES
+From the root directory:
+  cd backend && npm install
+  cd ../frontend && npm install
+  cd ..
+
+STEP 2: PREPARE DATABASE & SEED DEMO DATA
+From the root directory:
+  npm run db:push
+  npm run db:seed
+(This creates `backend/prisma/dev.db` and seeds the Acme Retail Customer Support demo).
+
+STEP 3: LAUNCH DEV SERVERS CONCURRENTLY
+From the root directory:
+  npm run dev
+- Backend starts at:  http://localhost:5005
+- Frontend starts at: http://localhost:5175
+
+STEP 4: LOG IN TO THE APPLICATION
+- Open http://localhost:5175 in your browser.
+- Click "Explore Live Demo" on the landing page OR click "Login" and sign in with:
+    Email:    demo@aisolutionbuilder.dev
+    Password: Solution@2026
+- You will immediately enter the "Customer Support Transformation" workspace with all 
+  8 stages pre-populated, interactive, and verifiable.
+
+
+================================================================================
+10. RECOMMENDED NEXT STEPS & EXTENSION ROADMAP (FOR GPT / DEVELOPERS)
+================================================================================
+
+If you (or an LLM like GPT) are asked to expand or continue building RootForge, 
+here are the highest-impact architectural enhancements ready to be implemented:
+
+1. REAL-TIME COLLABORATION VIA WEBSOCKETS (SOCKET.IO):
+   - Replace manual polling on `/collaboration` with a Socket.io server.
+   - Broadcast live cursor positions, node edits on the Architecture Canvas, and real-time comments.
+
+2. EMBEDDED RAG & VECTOR SEARCH FOR UPLOADED DOCUMENTS:
+   - Integrate SQLite-VSS or ChromaDB / pgvector.
+   - Chunk uploaded PDFs, generate vector embeddings, and pass retrieved excerpts 
+     directly to the AI Consultant prompt context.
+
+3. DIRECT JIRA / AZURE DEVOPS SYNC:
+   - In `ImplementationPlannerPage.jsx`, add an OAuth connector to push the generated 
+     sprint tasks directly into an active Jira or Azure DevOps board as epics and user stories.
+
+4. AUTOMATED CODE BOILERPLATE GENERATION (ZIP EXPORT):
+   - In `ExportCenterPage.jsx`, add a "Download Starter Repo (.zip)" action that takes the 
+     generated Prisma schema, Express routes, and React components and packages them 
+     into a scaffolded repository zip file ready for `git init`.
+
+5. NATIVE HEADLESS PDF GENERATION:
+   - Add a backend endpoint using Puppeteer to render the executive HTML dossier 
+     directly to a binary `.pdf` file buffer for direct file download.
+
+================================================================================
+END OF PROJECT OVERVIEW & STATUS DOCUMENTATION
+================================================================================

@@ -1,0 +1,33 @@
+{
+  "name": "ai-solution-builder-backend",
+  "version": "1.0.0",
+  "description": "Backend API for AI Solution Builder enterprise platform",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --watch-path=src --watch-path=.env src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.23.0",
+    "@prisma/client": "^5.22.0",
+    "adm-zip": "^0.6.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.2",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1",
+    "pptxgenjs": "^4.0.1"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0",
+    "puppeteer-core": "^25.11.0"
+  }
+}

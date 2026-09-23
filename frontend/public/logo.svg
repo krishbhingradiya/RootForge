@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" fill="none">
+  <defs>
+    <linearGradient id="rf_grad" x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E1E24" />
+      <stop offset="100%" stop-color="#121214" />
+    </linearGradient>
+    <linearGradient id="rf_orange" x1="12" y1="10" x2="36" y2="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E88B52" />
+      <stop offset="50%" stop-color="#C96B3B" />
+      <stop offset="100%" stop-color="#A54F22" />
+    </linearGradient>
+    <linearGradient id="rf_gold" x1="18" y1="14" x2="30" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FCD34D" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Outer Badge -->
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#rf_grad)" stroke="#33333A" stroke-width="1.5" />
+  
+  <!-- Interconnected Forge & Root Geometry (R + F Hybrid Motif) -->
+  <path d="M15 13H27C30.866 13 34 16.134 34 20C34 23.866 30.866 27 27 27H21V35H15V13Z" fill="url(#rf_orange)" fill-opacity="0.25" stroke="url(#rf_orange)" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M21 21H27C27.5523 21 28 20.5523 28 20C28 19.4477 27.5523 19 27 19H21V21Z" fill="#FAF8F5" />
+  <path d="M23 27L33 35" stroke="url(#rf_gold)" stroke-width="3" stroke-linecap="round" />
+  
+  <!-- Central Spark / Node -->
+  <circle cx="21" cy="20" r="2.5" fill="#FAF8F5" />
+  <circle cx="33" cy="35" r="2.5" fill="url(#rf_gold)" />
+</svg>
