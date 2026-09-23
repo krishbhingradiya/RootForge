@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "build": "prisma generate",
     "start": "node src/server.js",
     "dev": "node --watch --watch-path=src --watch-path=.env src/server.js",
     "prisma:generate": "prisma generate",

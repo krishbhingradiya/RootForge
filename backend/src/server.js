@@ -33,11 +33,18 @@ import { geminiConfig } from './ai/config/geminiConfig.js';
 import { providerRouter } from './ai/providers/providerRouter.js';
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5005;
 
-// Allowed frontend origins for dev, web, and mobile (support Vite, Capacitor Android, iOS)
+// Parse configured frontend URLs (comma-separated support)
+const configuredOrigins = [
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(s => s.trim()) : []),
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : []),
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()) : [])
+].filter(Boolean);
+
+// Allowed frontend origins for dev, web, and mobile (support Vite, Vercel, Capacitor Android, iOS)
 const allowedOrigins = [
-  process.env.CORS_ORIGIN,
+  ...configuredOrigins,
   'http://localhost:5175',
   'http://localhost:5173',
   'http://127.0.0.1:5175',
@@ -57,6 +64,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (
       allowedOrigins.includes(origin) ||
+      origin.endsWith('.vercel.app') ||
       origin.startsWith('http://localhost') ||
       origin.startsWith('http://127.0.0.1') ||
       origin.startsWith('http://10.0.2.2') ||
@@ -78,7 +86,23 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static uploads serving (canonically resolved)
 app.use('/uploads', express.static(uploadsDir));
 
-// Health check
+// Root Endpoint
+app.get('/', (req, res) => {
+  res.json({
+    service: 'RootForge backend',
+    status: 'running'
+  });
+});
+
+// Production Health Check Endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'RootForge backend'
+  });
+});
+
+// Detailed API Health Check
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -150,8 +174,14 @@ app.use('/api/admin', adminRoutes);
 // Centralized error handling
 app.use((err, req, res, next) => {
   console.error('Unhandled server error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error'
+  const isProd = process.env.NODE_ENV === 'production';
+  const statusCode = err.status || err.statusCode || 500;
+  const message = (isProd && statusCode === 500) 
+    ? 'Internal Server Error' 
+    : (err.message || 'Internal Server Error');
+
+  res.status(statusCode).json({
+    error: message
   });
 });
 
