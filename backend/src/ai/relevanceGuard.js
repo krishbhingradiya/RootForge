@@ -915,13 +915,27 @@ export function generateDynamicConsultantFallback(
                    docContext.documents?.[0]?.filename ||
                    ws.documents?.[0]?.name ||
                    ws.documents?.[0]?.filename;
-  const isShort = constraints?.length === 'SHORT';
+  const isShort = constraints?.length === 'SHORT' || constraints?.length === 'ONE_LINE' || constraints?.length === 'TWO_LINES' || constraints?.pointCount !== null;
 
   try {
     const parsed = JSON.parse(formatted.message);
     if (parsed) {
       if (normLang === 'gu') {
-        if (lowerMsg.includes('bottleneck') || lowerMsg.includes('અવરોધ') || lowerMsg.includes('સમસ્યા') || lowerMsg.includes('challenge') || lowerMsg.includes('પડકાર')) {
+        if (constraints?.length === 'ONE_LINE') {
+          parsed.summary = `${wsName} માટે મુખ્ય ઉદ્દેશ ${wsChallenge} ને ઉકેલીને ${wsObjective} પ્રાપ્ત કરવાનો છે.`;
+        } else if (constraints?.length === 'TWO_LINES') {
+          parsed.summary = `${wsName} માં પ્રાથમિક બિઝનેસ ચેલેન્જ: ${wsChallenge}.\nમુખ્ય ઉદ્દેશ: ${wsObjective}.`;
+        } else if (constraints?.pointCount || constraints?.format === 'BULLETS' || lowerMsg.includes('3') || lowerMsg.includes('ત્રણ')) {
+          const count = constraints?.pointCount || 3;
+          const points = [
+            '૧. વર્કફ્લો ઓટોમેશન: મેન્યુઅલ વિલંબ અને પેપરવર્ક દૂર કરવું.',
+            '૨. સિસ્ટમ ઇન્ટિગ્રેશન: REST API દ્વારા રિયલ-ટાઇમ કનેક્ટિવિટી.',
+            '૩. ઓપરેશનલ વિઝિબિલિટી: એન્ડ-ટુ-એન્ડ સ્ટેટસ અને KPI મોનિટરિંગ.',
+            '૪. ડેટા સુરક્ષા: રોલ-બેઝ્ડ એક્સેસ કંટ્રોલ અને ઓડિટ લોગિંગ.',
+            '૫. પરફોર્મન્સ સ્કેલેબિલિટી: હાઇ-થ્રુપુટ આર્કિટેક્ચર અને ક્લાઉડ રેઝિલિયન્સ.'
+          ];
+          parsed.summary = points.slice(0, Math.min(count, points.length)).join('\n');
+        } else if (lowerMsg.includes('bottleneck') || lowerMsg.includes('અવરોધ') || lowerMsg.includes('સમસ્યા') || lowerMsg.includes('challenge') || lowerMsg.includes('પડકાર')) {
           parsed.summary = `તમારા ${wsName} માં પ્રાથમિક બિઝનેસ ચેલેન્જ અને અવરોધ: ${wsChallenge}.`;
         } else if (lowerMsg.includes('requirement') || lowerMsg.includes('જરૂરિયાત') || lowerMsg.includes('જરૂરિયાતો')) {
           parsed.summary = `તમારા ${wsName} ની પ્રાથમિક બિઝનેસ જરૂરિયાતો: ઓટોમેટેડ વર્કફ્લો, સુરક્ષિત REST API ઇન્ટિગ્રેશન અને રિયલ-ટાઇમ ડેટાબેઝ સિંક્રોનાઇઝેશન.`;
@@ -931,8 +945,6 @@ export function generateDynamicConsultantFallback(
           } else {
             parsed.summary = `હાલના વર્કસ્પેસમાં આ પ્રશ્નનો ચોક્કસ જવાબ આપવા માટે પૂરતા દસ્તાવેજો ઉપલબ્ધ નથી.`;
           }
-        } else if (constraints?.pointCount === 3 || constraints?.format === 'BULLETS' || lowerMsg.includes('3') || lowerMsg.includes('ત્રણ')) {
-          parsed.summary = `૧. વર્કફ્લો ઓટોમેશન: મેન્યુઅલ વિલંબ અને પેપરવર્ક દૂર કરવું.\n૨. સિસ્ટમ ઇન્ટિગ્રેશન: REST API દ્વારા રિયલ-ટાઇમ કનેક્ટિવિટી.\n૩. ઓપરેશનલ વિઝિબિલિટી: એન્ડ-ટુ-એન્ડ સ્ટેટસ અને KPI મોનિટરિંગ.`;
         } else if (lowerMsg.includes('appointment') || lowerMsg.includes('scheduling') || lowerMsg.includes('એપોઇન્ટમેન્ટ') || lowerMsg.includes('શેડ્યુલિંગ')) {
           parsed.summary = `તમારી appointment scheduling system માટે REST API integration, PostgreSQL database અને real-time availability service જરૂરી રહેશે.`;
         } else {
@@ -958,7 +970,21 @@ export function generateDynamicConsultantFallback(
         }
         parsed.suggestedNextAction = 'સોલ્યુશન વિકલ્પોની સમીક્ષા કરો';
       } else if (normLang === 'hi') {
-        if (lowerMsg.includes('bottleneck') || lowerMsg.includes('बाधा') || lowerMsg.includes('challenge') || lowerMsg.includes('चुनौती')) {
+        if (constraints?.length === 'ONE_LINE') {
+          parsed.summary = `${wsName} का मुख्य उद्देश्य ${wsChallenge} को हल करके ${wsObjective} हासिल करना है।`;
+        } else if (constraints?.length === 'TWO_LINES') {
+          parsed.summary = `${wsName} की मुख्य व्यावसायिक चुनौती: ${wsChallenge}.\nमुख्य उद्देश्य: ${wsObjective}.`;
+        } else if (constraints?.pointCount || constraints?.format === 'BULLETS' || lowerMsg.includes('3') || lowerMsg.includes('तीन')) {
+          const count = constraints?.pointCount || 3;
+          const points = [
+            '1. वर्कफ़्लो स्वचालन: मैन्युअल देरी को समाप्त करना।',
+            '2. सिस्टम एकीकरण: REST API द्वारा सुरक्षित कनेक्टिविटी।',
+            '3. परिचालन दृश्यता: रीयल-टाइम स्थिति और KPI ट्रैकिंग।',
+            '4. डेटा सुरक्षा: भूमिका-आधारित पहुँच नियंत्रण और ऑडिट ट्रेल।',
+            '5. सिस्टम मापनीयता: उच्च-प्रदर्शन और क्लाउड लचीलापन।'
+          ];
+          parsed.summary = points.slice(0, Math.min(count, points.length)).join('\n');
+        } else if (lowerMsg.includes('bottleneck') || lowerMsg.includes('बाधा') || lowerMsg.includes('challenge') || lowerMsg.includes('चुनौती')) {
           parsed.summary = `आपकी ${wsName} पहल की मुख्य व्यावसायिक चुनौती: ${wsChallenge}.`;
         } else if (lowerMsg.includes('requirement') || lowerMsg.includes('आवश्यकता') || lowerMsg.includes('आवश्यकताएं')) {
           parsed.summary = `आपकी ${wsName} की मुख्य व्यावसायिक आवश्यकताएं: स्वचालित वर्कफ़्लो, सुरक्षित REST API एकीकरण और रीयल-टाइम डेटाबेस सिंक्रनाइज़ेशन.`;
@@ -968,8 +994,6 @@ export function generateDynamicConsultantFallback(
           } else {
             parsed.summary = `वर्तमान कार्यक्षेत्र में इसका सटीक उत्तर देने के लिए पर्याप्त दस्तावेज़ जानकारी उपलब्ध नहीं है।`;
           }
-        } else if (constraints?.pointCount === 3 || constraints?.format === 'BULLETS' || lowerMsg.includes('3') || lowerMsg.includes('तीन')) {
-          parsed.summary = `1. वर्कफ़्लो स्वचालन: मैन्युअल देरी को समाप्त करना।\n2. सिस्टम एकीकरण: REST API द्वारा सुरक्षित कनेक्टिविटी।\n3. परिचालन दृश्यता: रीयल-टाइम स्थिति और KPI ट्रैकिंग।`;
         } else {
           parsed.summary = `आपकी ${wsName} के लिए मुख्य उद्देश्य: ${wsObjective}.`;
         }
@@ -984,7 +1008,21 @@ export function generateDynamicConsultantFallback(
         parsed.suggestedNextAction = 'समाधान विकल्पों की समीक्षा करें';
       } else {
         // English
-        if (lowerMsg.includes('bottleneck') || lowerMsg.includes('challenge') || lowerMsg.includes('friction')) {
+        if (constraints?.length === 'ONE_LINE') {
+          parsed.summary = `For ${wsName}, the primary focus is resolving ${wsChallenge} to achieve ${wsObjective}.`;
+        } else if (constraints?.length === 'TWO_LINES') {
+          parsed.summary = `The primary operational challenge for ${wsName} is ${wsChallenge}.\nThe targeted transformation objective is ${wsObjective}.`;
+        } else if (constraints?.pointCount || constraints?.format === 'BULLETS' || lowerMsg.includes('3 points') || lowerMsg.includes('3 useful points') || lowerMsg.includes('3 risks')) {
+          const count = constraints?.pointCount || 3;
+          const points = [
+            '1. Operational Workflow Bottleneck: Manual triage delays and uncoordinated handoffs.',
+            '2. Interface Integration Friction: Disconnected legacy systems lacking unified REST APIs.',
+            '3. Operational Visibility Gap: Limited real-time tracking across distributed workflows.',
+            '4. Security and Compliance Exposure: Unstandardized role-based controls and audit records.',
+            '5. Scaling Constraints: Inability to handle high-throughput spikes without manual overhead.'
+          ];
+          parsed.summary = points.slice(0, Math.min(count, points.length)).join('\n');
+        } else if (lowerMsg.includes('bottleneck') || lowerMsg.includes('challenge') || lowerMsg.includes('friction')) {
           parsed.summary = `The primary business challenge and bottleneck for ${wsName} is: ${wsChallenge}.`;
         } else if (lowerMsg.includes('requirement') || lowerMsg.includes('requirements')) {
           parsed.summary = `The core business requirements for ${wsName} focus on automating manual workflows, implementing secure REST API integrations, and maintaining transactional data consistency.`;
@@ -994,8 +1032,6 @@ export function generateDynamicConsultantFallback(
           } else {
             parsed.summary = `I don't have enough information in the current workspace documents to answer that accurately.`;
           }
-        } else if (constraints?.pointCount === 3 || constraints?.format === 'BULLETS' || lowerMsg.includes('3 points') || lowerMsg.includes('3 useful points')) {
-          parsed.summary = `1. Operational Workflow Automation: Eliminate manual triage delays and paper handoffs.\n2. Interface Integration: Deploy modular REST APIs for bidirectional synchronization.\n3. Operational Visibility: Track real-time throughput and error metrics via central dashboards.`;
         } else if (isShort) {
           parsed.summary = `For ${wsName}, the primary focus is addressing: ${wsChallenge} to achieve: ${wsObjective}.`;
         }
@@ -1112,6 +1148,7 @@ export async function generateConsultantAnswer(context, userMessage, conversatio
     const model = configuredProvider === 'gemini' ? geminiConfig.getModel() : (process.env.AI_MODEL || 'gpt-4o-mini');
     const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '45000', 10);
     const temperature = parseFloat(process.env.AI_TEMPERATURE || '0.25');
+    const maxTokens = constraints?.maxTokensLimit || 2048;
 
     try {
       const completion = await providerRouter.generateChatCompletion({
@@ -1120,7 +1157,7 @@ export async function generateConsultantAnswer(context, userMessage, conversatio
         systemPrompt: promptData.systemPrompt,
         userPrompt: promptData.userPrompt,
         temperature,
-        maxTokens: 4096,
+        maxTokens,
         timeoutMs
       });
 
@@ -1144,8 +1181,9 @@ export async function generateConsultantAnswer(context, userMessage, conversatio
             structured = await translationService.translateStructured(structured, 'en');
           }
 
-          // RUNTIME LENGTH VALIDATION LAYER: If SHORT requested, prune boilerplate
-          if (constraints.length === 'SHORT') {
+          // RUNTIME LENGTH VALIDATION LAYER: If SHORT / ONE_LINE / TWO_LINES / Points requested, prune boilerplate
+          const isConciseMode = constraints.length === 'SHORT' || constraints.length === 'ONE_LINE' || constraints.length === 'TWO_LINES' || constraints.pointCount !== null;
+          if (isConciseMode) {
             structured.recommendations = [];
             structured.requirements = [];
             structured.openQuestions = [];

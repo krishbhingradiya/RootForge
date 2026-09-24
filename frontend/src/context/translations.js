@@ -55,7 +55,8 @@ export const translations = {
       version: 'Version',
       actions: 'Actions',
       all: 'All',
-      refresh: 'Refresh'
+      refresh: 'Refresh',
+      retry: 'Retry'
     },
     stages: {
       discovery: 'Discovery',
@@ -449,6 +450,14 @@ export const translations = {
       quickPromptsTitle: 'Recommended Inquiries:'
     },
     chat: {
+      failedToSend: 'Failed to send',
+      readOnlyAccess: 'You have read-only access and cannot send messages.',
+      sessionExpired: 'Your session has expired. Please sign in again.',
+      unableToSend: 'Unable to send your message. Please try again.',
+      errorConnect: 'Unable to connect to AI',
+      errorNetwork: 'Unable to connect to AI. Please check your network connection.',
+      errorAuth: 'Session expired. Please sign in again.',
+      errorTimeout: 'AI Consultant request timed out. Please retry.',
       aiConsultant: 'AI Business Consultant',
       consultantSubtitle: 'Contextual Interview & Operational Discovery Session',
       history: 'History',
@@ -746,7 +755,8 @@ export const translations = {
       version: 'संस्करण',
       actions: 'कार्रवाई',
       all: 'सभी',
-      refresh: 'रीफ़्रेश'
+      refresh: 'रीफ़्रेश',
+      retry: 'पुनः प्रयास करें'
     },
     stages: {
       discovery: 'डिस्कवरी',
@@ -1130,6 +1140,14 @@ export const translations = {
       quickPromptsTitle: 'अनुशंसित पूछताछ:'
     },
     chat: {
+      failedToSend: 'संदेश भेजने में विफल',
+      readOnlyAccess: 'आपके पास केवल पढ़ने की अनुमति है और आप संदेश नहीं भेज सकते।',
+      sessionExpired: 'आपका सत्र समाप्त हो गया है। कृपया पुनः साइन इन करें।',
+      unableToSend: 'आपका संदेश भेजने में असमर्थ। कृपया पुनः प्रयास करें।',
+      errorConnect: 'एआई से कनेक्ट करने में असमर्थ',
+      errorNetwork: 'एआई से कनेक्ट करने में असमर्थ। कृपया अपना नेटवर्क कनेक्शन जांचें।',
+      errorAuth: 'सत्र समाप्त। कृपया पुनः साइन इन करें।',
+      errorTimeout: 'एआई कंसल्टेंट अनुरोध का समय समाप्त हो गया। कृपया पुनः प्रयास करें।',
       aiConsultant: 'एआई बिजनेस सलाहकार',
       consultantSubtitle: 'संदर्भगत साक्षात्कार और परिचालन खोज सत्र',
       history: 'इतिहास',
@@ -1427,7 +1445,8 @@ export const translations = {
       version: 'આવૃત્તિ',
       actions: 'પગલાં',
       all: 'બધા',
-      refresh: 'રીફ્રેશ'
+      refresh: 'રીફ્રેશ',
+      retry: 'ફરી પ્રયાસ કરો'
     },
     stages: {
       discovery: 'ડિસ્કવરી',
@@ -1811,6 +1830,14 @@ export const translations = {
       quickPromptsTitle: 'ભલામણ કરેલ પૂછપરછ:'
     },
     chat: {
+      failedToSend: 'સંદેશ મોકલવામાં નિષ્ફળ',
+      readOnlyAccess: 'તમારી પાસે ફક્ત વાંચવાની પરવાનગી છે અને તમે સંદેશ મોકલી શકતા નથી.',
+      sessionExpired: 'તમારું સત્ર સમાપ્ત થઈ ગયું છે. કૃપા કરીને ફરીથી સાઇન ઇન કરો.',
+      unableToSend: 'તમારો સંદેશ મોકલવામાં અસમર્થ. કૃપા કરીને ફરી પ્રયાસ કરો.',
+      errorConnect: 'AI સાથે જોડાવામાં અસમર્થ',
+      errorNetwork: 'AI સાથે જોડાવામાં અસમર્થ. કૃપા કરીને તમારું નેટવર્ક કનેક્શન તપાસો.',
+      errorAuth: 'સત્ર સમાપ્ત. કૃપા કરીને ફરીથી સાઇન ઇન કરો.',
+      errorTimeout: 'AI કન્સલ્ટન્ટ વિનંતીનો સમય સમાપ્ત થઈ ગયો. કૃપા કરીને ફરી પ્રયાસ કરો.',
       aiConsultant: 'એઆઈ બિઝનેસ સલાહકાર',
       consultantSubtitle: 'સંદર્ભિત ઇન્ટરવ્યુ અને ઓપરેશનલ ડિસ્કવરી સત્ર',
       history: 'ઇતિહાસ',

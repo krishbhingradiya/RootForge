@@ -33,7 +33,6 @@ export function resolveConversationalLanguage(messageContent = '', fallbackUiLan
   const lower = text.toLowerCase();
 
   // PRIORITY 1: Explicit User Language Directives (English, Gujarati, Hindi)
-  // Handles English, Romanized transliterations ("gujarati ma", "hindi me"), and native scripts
   const gujaratiDirectives = [
     /\b(?:in\s+gujarati|gujarati\s+ma|gujarati\s+maa|gujarati\s+bhasha|gujarati\s+language)\b/i,
     /(?:answer\s+in|respond\s+in|speak\s+in|write\s+in|explain\s+in|tell\s+in)\s+gujarati\b/i,
@@ -102,32 +101,136 @@ export function resolveConversationalLanguage(messageContent = '', fallbackUiLan
 /**
  * Detects explicit response-length and formatting constraints in user message.
  * 
+ * Implements deterministic response-length and format directives:
+ * - ONE_LINE: Exactly 1 concise sentence (approx 15-25 words)
+ * - TWO_LINES: Approximately 2 lines / 2 sentences
+ * - BULLETS: Exactly N points/bullets when specified (e.g. "3 points", "give me 3 risks")
+ * - SHORT / BRIEF: Concise answer in 2-4 sentences or bullets, no fluff
+ * - DETAILED: Comprehensive structured explanation
+ * - NORMAL: Default standard consultation depth
+ * 
  * @param {string} messageContent - The raw user message text
  * @returns {{
- *   length: 'SHORT' | 'MEDIUM' | 'DETAILED',
- *   format: 'DEFAULT' | 'BULLETS' | 'STEPS' | 'EXAMPLE' | 'SINGLE_SENTENCE',
- *   pointCount: number | null
+ *   length: 'ONE_LINE' | 'TWO_LINES' | 'SHORT' | 'NORMAL' | 'DETAILED',
+ *   format: 'DEFAULT' | 'BULLETS' | 'STEPS' | 'COMPARISON' | 'EXAMPLE' | 'SINGLE_SENTENCE' | 'TWO_LINES',
+ *   pointCount: number | null,
+ *   maxTokensLimit: number,
+ *   instruction: string
  * }}
  */
 export function detectResponseConstraints(messageContent = '') {
   if (!messageContent || typeof messageContent !== 'string') {
-    return { length: 'MEDIUM', format: 'DEFAULT', pointCount: null };
+    return {
+      length: 'NORMAL',
+      format: 'DEFAULT',
+      pointCount: null,
+      maxTokensLimit: 2048,
+      instruction: 'Provide a useful, structured answer with appropriate detail.'
+    };
   }
 
   const text = messageContent.trim();
   const lower = text.toLowerCase();
 
-  // Point count detection (e.g. "in 3 points", "3 મુદ્દામાં", "3 बिंदुओं में")
+  // 1. One Line / Single Sentence detection
+  const isOneLine =
+    /\b(?:answer\s+in\s+one\s+line|in\s+one\s+line|one\s+line|1\s+line|single\s+line|in\s+a\s+single\s+line|one\s+sentence|in\s+one\s+sentence|single\s+sentence|1\s+sentence)\b/i.test(lower) ||
+    /(?:એક\s+વાક્યમાં|એક\s+લાઇનમાં|૧\s+વાક્ય|1\s+વાક્ય|એક\s+વાક્ય|एक\s+लाइन\s+में|एक\s+वाक्य\s+में|1\s+वाक्य|૧\s+લાઇન)/.test(text);
+
+  // 2. Two Lines / Two Sentences detection
+  const isTwoLines =
+    /\b(?:answer\s+in\s+2\s+lines|in\s+2\s+lines|2\s+lines|two\s+lines|in\s+two\s+lines|2\s+sentences|two\s+sentences|in\s+2\s+sentences|in\s+two\s+sentences)\b/i.test(lower) ||
+    /(?:બે\s+વાક્યમાં|બે\s+લાઇનમાં|૨\s+વાક્ય|2\s+વાક્ય|બે\s+વાક્ય|दो\s+लाइन\s+में|दो\s+वाक्य\s+में|2\s+वाक्य|૨\s+લાઇન)/.test(text);
+
+  // 3. Point count detection (e.g. "3 points", "give me 3 risks", "5 bullets", "3 મુદ્દા", "3 બિંદુ", "3 बिंदु")
   let pointCount = null;
-  const pointMatch = lower.match(/\b(\d+)\s*(?:points?|bullets?|મુદ્દા|મુદ્દાઓ|બિંદુ|बिंदुओं|पॉइंट्स?)\b/i) ||
-                     text.match(/(\d+)\s*(?:મુદ્દા|મુદ્દાઓ|બિંદુ|बिंदु|बिंदुओं|પૉઇન્ટ|પોઇન્ટ|પોઈન્ટ)/);
+  const wordToNum = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  const pointMatch =
+    lower.match(/\b(?:give\s+me\s+|in\s+|show\s+|list\s+|provide\s+)?(\d+)\s*(?:[\w\s]{0,25}?)\s*(?:points?|bullets?|risks?|items?|reasons?|recommendations?|solutions?|steps?|features?)\b/i) ||
+    text.match(/(\d+)\s*(?:[\u0A80-\u0AFF\u0900-\u097F\w\s]{0,20}?)\s*(?:મુદ્દા|મુદ્દાઓ|બિંદુ|बिંદુ|बिંદुओं|પૉઇન્ટ|પોઇન્ટ|પોઈન્ટ|જોખિમ|પડકારો|કારણો|સૂચનો)/) ||
+    lower.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:[\w\s]{0,25}?)\s*(?:points?|bullets?|risks?|items?|recommendations?)\b/i);
+
   if (pointMatch) {
-    pointCount = parseInt(pointMatch[1], 10);
+    const rawVal = pointMatch[1]?.toLowerCase().trim();
+    if (/^\d+$/.test(rawVal)) {
+      pointCount = parseInt(rawVal, 10);
+    } else if (rawVal && wordToNum[rawVal]) {
+      pointCount = wordToNum[rawVal];
+    }
   }
 
-  // Format detection
+  // 4. Detailed detection
+  const detailedPatterns = [
+    /\b(detailed|in\s+detail|in-depth|comprehensive|thorough|thoroughly|explain\s+deeply|deep\s+dive|full\s+explanation)\b/i,
+    /\b(give\s+me\s+a\s+detailed\s+explanation|detailed\s+breakdown|step\s+by\s+step\s+guide|exhaustive|elaborate|elaborately)\b/i,
+    /(વિગતવાર|વિસ્તારથી|વિસ્તૃત|ઊંડાણપૂર્વક)/,
+    /(विस्तार\s*से|गहराई\s*से|विस्तृत|विस्तारपूर्वक)/
+  ];
+  const isDetailed = detailedPatterns.some(p => p.test(lower));
+
+  // 5. Short / Brief / Summary detection
+  const shortPatterns = [
+    /\b(short|in\s+short|keep\s+it\s+short|short\s+answer|brief|briefly|explain\s+briefly|quickly|shortly|concise|concisely|give\s+me\s+a\s+concise\s+answer)\b/i,
+    /\b(summarize|summary|tldr|tl;dr|tl-dr|in\s+a\s+nutshell|quick\s+summary|give\s+me\s+only\s+the\s+answer|only\s+the\s+answer|just\s+answer)\b/i,
+    /(ટૂંકમાં|ટૂંકું|ટૂંકો|સંક્ષિપ્ત|સંક્ષિપ્તમાં|ટુંકમાં|ટૂંકમાં\s+સમજાવો)/,
+    /(संक्षेप\s*में|छोटा\s*उत्तर|संक्षिप्त|कम\s+शब्दों\s+में|संक्षेप\s+में\s+बताएं)/
+  ];
+  const isShort = shortPatterns.some(p => p.test(lower));
+
+  // Resolve Length & Format Hierarchy (User explicit request is King)
+  if (isOneLine) {
+    return {
+      length: 'ONE_LINE',
+      format: 'SINGLE_SENTENCE',
+      pointCount: null,
+      maxTokensLimit: 256,
+      instruction: 'Answer in EXACTLY one concise sentence (approx 15-25 words). Absolutely no extra paragraphs, no bullet points, no filler.'
+    };
+  }
+
+  if (isTwoLines) {
+    return {
+      length: 'TWO_LINES',
+      format: 'TWO_LINES',
+      pointCount: null,
+      maxTokensLimit: 384,
+      instruction: 'Answer in approximately 2 concise sentences/lines. Avoid unnecessary background.'
+    };
+  }
+
+  if (pointCount !== null) {
+    return {
+      length: pointCount <= 3 ? 'SHORT' : (pointCount <= 5 ? 'NORMAL' : 'DETAILED'),
+      format: 'BULLETS',
+      pointCount,
+      maxTokensLimit: Math.min(1024, pointCount * 120 + 200),
+      instruction: `Return EXACTLY ${pointCount} concise bullet points. No introductory filler, no concluding boilerplate.`
+    };
+  }
+
+  if (isDetailed) {
+    return {
+      length: 'DETAILED',
+      format: 'DEFAULT',
+      pointCount: null,
+      maxTokensLimit: 4096,
+      instruction: 'Provide a comprehensive, in-depth structured explanation covering architecture, operational impact, and concrete recommendations.'
+    };
+  }
+
+  if (isShort) {
+    return {
+      length: 'SHORT',
+      format: 'DEFAULT',
+      pointCount: null,
+      maxTokensLimit: 512,
+      instruction: 'Answer concisely in 2 to 4 short sentences or bullets. Avoid unnecessary background or repetitive text.'
+    };
+  }
+
+  // Formatting-only directives (without explicit length)
   let format = 'DEFAULT';
-  if (pointCount || /\b(bullet|bullets|point|points|bullet\s+points)\b/i.test(lower) || /(પોઈન્ટ|પોઈન્ટ્સ|પોઇન્ટ|મુદ્દા|મુદ્દાઓ|બિંદુ|बिंदુ|बिंदुओं)/.test(text)) {
+  if (/\b(bullet|bullets|point|points|bullet\s+points)\b/i.test(lower) || /(પોઈન્ટ|પોઈન્ટ્સ|પોઇન્ટ|મુદ્દા|મુદ્દાઓ|બિંદુ|बिંદુ|बिંદुओं)/.test(text)) {
     format = 'BULLETS';
   } else if (/\b(step\s+by\s+step|steps)\b/i.test(lower) || /(પગલાં|તબક્કાવાર|चरणबद्ध)/.test(text)) {
     format = 'STEPS';
@@ -135,38 +238,13 @@ export function detectResponseConstraints(messageContent = '') {
     format = 'COMPARISON';
   } else if (/\b(example|for\s+example)\b/i.test(lower) || /(દાખલો|ઉદાહરણ|उदाहरण)/.test(text)) {
     format = 'EXAMPLE';
-  } else if (/\b(one\s+sentence|single\s+sentence)\b/i.test(lower) || /(એક\s+વાક્ય|एक\s+वाक्य)/.test(text)) {
-    format = 'SINGLE_SENTENCE';
-  }
-
-  // Length detection: SHORT
-  const shortPatterns = [
-    /\b(short|in\s+short|keep\s+it\s+short|short\s+answer|brief|briefly|quickly|shortly|concise|concisely)\b/i,
-    /\b(give\s+me\s+only\s+the\s+answer|only\s+the\s+answer|one\s+sentence|summary\s+only|just\s+answer)\b/i,
-    /(ટૂંકમાં|ટૂંકું|ટૂંકો|સંક્ષિપ્ત|સંક્ષિપ્તમાં|ટુંકમાં)/,
-    /(संक्षेप\s*में|छोटा\s*उत्तर|संक्षिप्त|कम\s+शब्दों\s+में)/
-  ];
-
-  // Length detection: DETAILED
-  const detailedPatterns = [
-    /\b(detailed|in\s+detail|in-depth|comprehensive|thorough|thoroughly|explain\s+deeply|deep\s+dive|full\s+explanation)\b/i,
-    /\b(step\s+by\s+step\s+guide|exhaustive|elaborate|elaborately)\b/i,
-    /(વિગતવાર|વિસ્તારથી|વિસ્તૃત|ઊંડાણપૂર્વક)/,
-    /(विस्तार\s*से|गहराई\s*से|विस्तृत|विस्तारपूर्वक)/
-  ];
-
-  let length = 'MEDIUM';
-  if (shortPatterns.some(p => p.test(lower))) {
-    length = 'SHORT';
-  } else if (detailedPatterns.some(p => p.test(lower))) {
-    length = 'DETAILED';
-  } else if (pointCount && pointCount <= 3) {
-    length = 'SHORT';
   }
 
   return {
-    length,
+    length: 'NORMAL',
     format,
-    pointCount
+    pointCount: null,
+    maxTokensLimit: 2048,
+    instruction: 'Provide a useful, structured answer with appropriate detail.'
   };
 }

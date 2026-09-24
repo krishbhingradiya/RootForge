@@ -58,34 +58,52 @@ export function buildConsultantDialoguePrompt(
 
   // Response length instruction
   let lengthInstruction = '';
-  const lengthMode = constraints?.length || 'MEDIUM';
-  if (lengthMode === 'SHORT') {
+  const lengthMode = constraints?.length || 'NORMAL';
+  if (lengthMode === 'ONE_LINE') {
+    lengthInstruction = `\n7. CRITICAL RESPONSE-LENGTH CONSTRAINT (EXACTLY ONE LINE):
+   - The user explicitly requested an answer in ONE LINE.
+   - You MUST formulate your "summary" as EXACTLY ONE concise sentence (approx 15–25 words).
+   - Absolutely NO multiple sentences, NO bullet points, NO filler, and NO introductory clauses.
+   - Keep confirmedFacts, recommendations, requirements, openQuestions, and inferences as empty arrays ([]).`;
+  } else if (lengthMode === 'TWO_LINES') {
+    lengthInstruction = `\n7. CRITICAL RESPONSE-LENGTH CONSTRAINT (EXACTLY TWO LINES):
+   - The user explicitly requested an answer in TWO LINES.
+   - You MUST formulate your "summary" in approximately TWO concise sentences / lines.
+   - Keep confirmedFacts, recommendations, requirements, openQuestions, and inferences as empty arrays ([]).`;
+  } else if (constraints?.pointCount !== null && constraints?.pointCount !== undefined) {
+    lengthInstruction = `\n7. CRITICAL RESPONSE-LENGTH CONSTRAINT (EXACTLY ${constraints.pointCount} POINTS):
+   - The user explicitly requested EXACTLY ${constraints.pointCount} points/risks/bullets.
+   - You MUST formulate your "summary" as EXACTLY ${constraints.pointCount} concise, numbered or bulleted points.
+   - Do NOT output fewer or more than ${constraints.pointCount} points.
+   - Do NOT include verbose introductory or concluding paragraphs.
+   - Keep confirmedFacts, recommendations, requirements, openQuestions, and inferences as empty arrays ([]).`;
+  } else if (lengthMode === 'SHORT') {
     lengthInstruction = `\n7. CRITICAL RESPONSE-LENGTH CONSTRAINT (SHORT / BRIEF):
-   - The user explicitly requested a SHORT/CONCISE answer.
-   - You MUST keep your "summary" between 1 and 4 concise sentences, OR 3 to 5 concise bullet points maximum.
+   - The user explicitly requested a SHORT / BRIEF answer.
+   - You MUST keep your "summary" between 2 and 4 concise sentences, OR 3 to 4 concise bullet points maximum.
    - Do NOT generate unnecessary background overview, history, or boilerplate.
    - Answer ONLY the specific question asked.
-   - Do NOT invent recommendations, requirements, or open questions unless specifically requested by the user. Keep those arrays empty ([]) unless directly relevant.`;
+   - Keep confirmedFacts, recommendations, requirements, openQuestions, and inferences as empty arrays ([]).`;
   } else if (lengthMode === 'DETAILED') {
     lengthInstruction = `\n7. RESPONSE-LENGTH CONSTRAINT (DETAILED):
    - The user requested a detailed, in-depth explanation.
    - Provide a thorough, comprehensive analysis covering architectural layers, operational trade-offs, and concrete specifications.`;
   } else {
-    lengthInstruction = `\n7. RESPONSE-LENGTH CONSTRAINT (MEDIUM / CONVERSATIONAL):
-   - Provide a direct, focused answer (2 to 3 structured paragraphs or bullets) answering the exact question.`;
+    lengthInstruction = `\n7. RESPONSE-LENGTH CONSTRAINT (STANDARD / BALANCED):
+   - Provide a direct, focused answer (2 to 3 structured paragraphs or bullets) answering the exact question directly.`;
   }
 
   // Format modifier
   let formatInstruction = '';
   if (constraints?.format === 'COMPARISON') {
-    formatInstruction = `\n8. FORMATTING CONSTRAINT: The user asked to compare options. Structure your answer as a clear comparative analysis, comparing the key trade-offs, advantages, and drawbacks side by side.`;
+    formatInstruction = `\n8. FORMATTING CONSTRAINT: The user asked to compare options. Structure your answer as a clear comparative analysis, comparing key trade-offs, advantages, and drawbacks.`;
   } else if (constraints?.pointCount) {
     formatInstruction = `\n8. FORMATTING CONSTRAINT: Provide the answer in EXACTLY ${constraints.pointCount} concise points.`;
   } else if (constraints?.format === 'BULLETS') {
-    formatInstruction = `\n8. FORMATTING CONSTRAINT: Format the answer using clear bullet points (- point).`;
+    formatInstruction = `\n8. FORMATTING CONSTRAINT: Format the answer using clean bullet points (- point).`;
   } else if (constraints?.format === 'STEPS') {
     formatInstruction = `\n8. FORMATTING CONSTRAINT: Format the answer as step-by-step numbered instructions (1. step).`;
-  } else if (constraints?.format === 'SINGLE_SENTENCE') {
+  } else if (constraints?.format === 'SINGLE_SENTENCE' || lengthMode === 'ONE_LINE') {
     formatInstruction = `\n8. FORMATTING CONSTRAINT: Provide the answer in exactly ONE single concise sentence.`;
   }
 
@@ -95,12 +113,18 @@ Your mission is to guide enterprise clients through deep, rigorous operational d
 ${FACT_VS_INFERENCE_RULES}
 
 CRITICAL ARCHITECTURAL & CONSULTING RULES:
-1. ANSWER THE ACTUAL QUESTION:
-   - When the user asks a specific question (e.g. "What is our primary bottleneck?"), answer specifically about that topic.
+1. ANSWER THE ACTUAL QUESTION DIRECTLY:
+   - When the user asks a specific question (e.g. "What is our primary bottleneck?"), answer specifically about that topic in the very first sentence.
    - Do NOT automatically repeat the entire workspace overview, requirements, architecture, and solutions.
    - Answer only what was requested.
 
-2. EVIDENCE-BASED ANSWERS & NO HALLUCINATIONS:
+2. ANTI-REPETITION & ZERO FLUFF:
+   - NEVER start with generic filler phrases such as "Certainly!", "Sure, I can help with that", "As an AI consultant...", "Here is the breakdown of...", or repeating the user's question.
+   - NEVER end with repetitive concluding boilerplate like "Hope this helps!", "Let me know if you need more details", or restating what you just explained.
+   - Avoid generic disclaimers and explaining obvious concepts.
+   - Do not repeat information already established in recent conversation turns.
+
+3. EVIDENCE-BASED ANSWERS & NO HALLUCINATIONS:
    - When answering workspace/business questions, use ONLY:
      1. Current workspace context
      2. User-provided information
@@ -113,18 +137,18 @@ CRITICAL ARCHITECTURAL & CONSULTING RULES:
    - Never fabricate company facts, metrics, documents, requirements, stakeholders, or business processes.
    - ZERO INVENTED EHR / ERP VENDORS: If context mentions an "existing patient-record system" without naming a vendor, DO NOT claim it is Epic, Cerner, SAP, or Oracle.
 
-3. STRICT FACT CLASSIFICATION:
+4. STRICT FACT CLASSIFICATION:
    Every factual assertion in confirmedFacts must be classified as:
    - "DOCUMENT_FACT": Information explicitly verified in uploaded workspace documents.
    - "USER_PROVIDED_FACT": Information stated by the user during dialogue.
    - "SYSTEM_FACT": Baseline workspace metadata (name, objective, challenge, target users).
    - Never label proposed solutions as documented facts.
 
-4. USER CORRECTIONS & CONVERSATIONAL PRONOUNS:
+5. USER CORRECTIONS & CONVERSATIONAL PRONOUNS:
    - Honor user corrections and overrides immediately.
    - Resolve pronouns ("it", "that", "this", "તેમાં", "તેનો", "એમાં", "આમાં", "इसमें", "उसमें") using the topic established in recent conversation.
 
-5. OUTPUT FORMAT:
+6. OUTPUT FORMAT:
    - Respond ONLY with a single valid JSON object strictly matching the schema below. No markdown wrappers or outside text.${langInstruction}${lengthInstruction}${formatInstruction}`;
 
   const sections = [];

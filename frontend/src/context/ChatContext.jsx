@@ -251,10 +251,27 @@ export const ChatProvider = ({ children }) => {
         _perf: res._perf
       };
     } catch (err) {
+      const errMsg = (err?.message || '').toLowerCase();
+      let friendlyError = 'Unable to send your message. Please try again.';
+      if (err?.status === 403 || errMsg.includes('read-only') || errMsg.includes('viewer') || errMsg.includes('denied') || errMsg.includes('permission')) {
+        friendlyError = 'You have read-only access and cannot send messages.';
+      } else if (err?.status === 401 || errMsg.includes('auth') || errMsg.includes('expired') || errMsg.includes('token') || errMsg.includes('unauthorized') || errMsg.includes('session')) {
+        friendlyError = 'Your session has expired. Please sign in again.';
+      } else if (errMsg.includes('network') || errMsg.includes('failed to fetch') || errMsg.includes('offline')) {
+        friendlyError = 'Unable to connect to AI. Please check your network connection.';
+      } else if (errMsg.includes('timeout') || errMsg.includes('504') || errMsg.includes('timed out')) {
+        friendlyError = 'AI Consultant request timed out. Please retry.';
+      }
+
       // Preserve optimistic user message on failure so the user does not lose their typed message
       setMessagesByChatId(prev => ({
         ...prev,
-        [chatId]: (prev[chatId] || []).map(m => m.id === tempUserMsg.id ? { ...m, isFailed: true } : m)
+        [chatId]: (prev[chatId] || []).map(m => m.id === tempUserMsg.id ? {
+          ...m,
+          isFailed: true,
+          errorMessage: friendlyError,
+          rawError: err.message
+        } : m)
       }));
       throw err;
     } finally {

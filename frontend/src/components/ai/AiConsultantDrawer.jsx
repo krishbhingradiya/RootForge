@@ -220,11 +220,13 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
     } catch (err) {
       console.error('AI Consultant send failed:', err);
       const errMsg = (err?.message || '').toLowerCase();
-      let friendlyMessage = err?.message || (t('chat.errorConnect') || 'Unable to connect to AI');
-      if (errMsg.includes('network') || errMsg.includes('failed to fetch') || errMsg.includes('offline')) {
+      let friendlyMessage = t('chat.unableToSend') || 'Unable to send your message. Please try again.';
+      if (err?.status === 403 || errMsg.includes('read-only') || errMsg.includes('viewer') || errMsg.includes('denied') || errMsg.includes('permission')) {
+        friendlyMessage = t('chat.readOnlyAccess') || 'You have read-only access and cannot send messages.';
+      } else if (err?.status === 401 || errMsg.includes('auth') || errMsg.includes('401') || errMsg.includes('token') || errMsg.includes('unauthorized') || errMsg.includes('expired') || errMsg.includes('session')) {
+        friendlyMessage = t('chat.sessionExpired') || 'Your session has expired. Please sign in again.';
+      } else if (errMsg.includes('network') || errMsg.includes('failed to fetch') || errMsg.includes('offline')) {
         friendlyMessage = t('chat.errorNetwork') || 'Unable to connect to AI. Please check your network connection.';
-      } else if (errMsg.includes('auth') || errMsg.includes('401') || errMsg.includes('token') || errMsg.includes('unauthorized')) {
-        friendlyMessage = t('chat.errorAuth') || 'Session expired. Please refresh the page.';
       } else if (errMsg.includes('timeout') || errMsg.includes('504') || errMsg.includes('timed out')) {
         friendlyMessage = t('chat.errorTimeout') || 'AI Consultant request timed out. Please retry.';
       }

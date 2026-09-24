@@ -89,6 +89,7 @@ export async function getAuthorizedWorkspace(workspaceId, user, options = {}) {
   // Role Write Permission Check:
   if (options.requireWrite) {
     if (user.role === 'VIEWER') {
+      console.warn(`[AUTHZ_DENIED] Write access denied for user="${user.id}" email="${user.email}" role="${user.role}" on workspace="${workspaceId}"`);
       throw new HttpError(403, 'Access denied. Viewers have read-only permissions.');
     }
   }
@@ -119,7 +120,7 @@ export async function assertWorkspaceWriteAccess(workspaceId, user, options = {}
  * 4. If requireWrite: true, verifies user is not a read-only VIEWER
  */
 export async function assertChatSessionAccess(chatId, workspaceId, user, options = {}) {
-  await assertWorkspaceAccess(workspaceId, user, options);
+  await getAuthorizedWorkspace(workspaceId, user, options);
 
   if (!chatId) {
     throw new HttpError(400, 'Chat session ID is required.');
