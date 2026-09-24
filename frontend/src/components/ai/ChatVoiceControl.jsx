@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Mic, MicOff, Square, Loader2, Volume2, VolumeX, AlertCircle, ShieldAlert } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
 import { useLanguage } from '../../context/LanguageContext';
 import api from '../../services/api';
 
@@ -97,6 +99,43 @@ export const ChatVoiceInput = ({
       stopListeningCleanly(false);
     }
   }, [workspaceId, sessionId]);
+
+  // Reset state and re-check permission when application resumes from Android Settings / background
+  useEffect(() => {
+    const handleAppResume = () => {
+      console.log('[VOICE DEBUG] App resumed/became visible. Clearing stale permission states.');
+      setState(prev => (prev === 'permissionDenied' || prev === 'error' ? 'idle' : prev));
+      setErrorMessage('');
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleAppResume();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    let appListenerHandle = null;
+    try {
+      if (typeof App !== 'undefined' && App.addListener) {
+        App.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) {
+            handleAppResume();
+          }
+        }).then(handle => {
+          appListenerHandle = handle;
+        }).catch(() => {});
+      }
+    } catch {}
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (appListenerHandle && typeof appListenerHandle.remove === 'function') {
+        appListenerHandle.remove();
+      }
+    };
+  }, []);
 
   // Global unmount cleanup
   useEffect(() => {
@@ -337,16 +376,19 @@ export const ChatVoiceInput = ({
 
   /**
    * MediaRecorder + Backend Gemini Audio STT fallback.
-   * Activated if Web Speech API is absent or throws network/service errors.
+   * Primary voice capture method on Capacitor Android WebView and fallback on Web.
    */
   const startMediaRecorderFallback = useCallback(async () => {
     if (!hasMediaDevices) {
       setState('unsupported');
+      setErrorMessage('Microphone is not available on this device.');
       return;
     }
 
     try {
       setState('starting');
+      setErrorMessage('');
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
@@ -369,6 +411,7 @@ export const ChatVoiceInput = ({
       recorder.onstart = () => {
         isListeningRef.current = true;
         setState('listening');
+        setErrorMessage('');
         console.log('[VOICE DEBUG] MediaRecorder audio recording started with mimeType:', mimeType);
       };
 
@@ -421,13 +464,19 @@ export const ChatVoiceInput = ({
 
     } catch (err) {
       console.warn('[VOICE DEBUG] getUserMedia failed:', err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.name === 'SecurityError') {
         setState('permissionDenied');
-        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone access denied. Please allow microphone permissions.');
+        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone permission is required. Please allow microphone access or enable it in Android Settings.');
+        setTimeout(() => {
+          setState(prev => (prev === 'permissionDenied' ? 'idle' : prev));
+        }, 4500);
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setState('unsupported');
+        setErrorMessage('Microphone is not available on this device.');
       } else {
         setState('error');
-        setErrorMessage(t('chat.voice.error') || 'Microphone capture error. Click to retry.');
-        setTimeout(() => setState('idle'), 3000);
+        setErrorMessage(t('chat.voice.error') || 'Unable to start the microphone. Please tap to try again.');
+        setTimeout(() => setState('idle'), 3500);
       }
     }
   }, [hasMediaDevices, workspaceId, finalizeAndSubmit, t]);
@@ -444,8 +493,12 @@ export const ChatVoiceInput = ({
       } else {
         finalizeAndSubmit();
       }
-    } else if (state === 'idle' || state === 'error') {
-      if (hasWebSpeech) {
+    } else {
+      // Allow starting from idle, error, or permissionDenied without permanently locking
+      setErrorMessage('');
+      if (Capacitor.isNativePlatform()) {
+        startMediaRecorderFallback();
+      } else if (hasWebSpeech) {
         startWebSpeech();
       } else if (hasMediaDevices && workspaceId) {
         startMediaRecorderFallback();
