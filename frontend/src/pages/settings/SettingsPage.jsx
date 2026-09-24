@@ -259,10 +259,17 @@ export const SettingsPage = () => {
               className="form-input"
               value={customServerUrl}
               onChange={(e) => setCustomServerUrl(e.target.value)}
-              placeholder="e.g. http://10.0.2.2:5005 or https://api.yourdomain.com"
+              placeholder="e.g. https://rootforge.onrender.com"
             />
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setCustomServerUrl('https://rootforge.onrender.com')}
+            >
+              Production Render (rootforge.onrender.com)
+            </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -273,16 +280,9 @@ export const SettingsPage = () => {
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => setCustomServerUrl('http://127.0.0.1:5005')}
-            >
-              Localhost (127.0.0.1:5005)
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
               onClick={() => setCustomServerUrl('')}
             >
-              Default (Relative /api)
+              Default Production Gateway
             </button>
           </div>
           <div>

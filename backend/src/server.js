@@ -45,6 +45,7 @@ const configuredOrigins = [
 // Allowed frontend origins for dev, web, and mobile (support Vite, Vercel, Capacitor Android, iOS)
 const allowedOrigins = [
   ...configuredOrigins,
+  'https://root-forge.vercel.app',
   'http://localhost:5175',
   'http://localhost:5173',
   'http://127.0.0.1:5175',

@@ -1,9 +1,11 @@
-const DEFAULT_BACKEND_URL = 'https://root-forge.vercel.app';
+const DEFAULT_BACKEND_URL = 'https://rootforge.onrender.com';
 
 export function getApiServerUrl() {
-  // 1. User manual override from in-app Settings
+  // 1. User manual override from in-app Settings (clean up legacy stale Vercel backend overrides)
   const customUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('aisb_server_url') : null;
-  if (customUrl && customUrl.trim()) {
+  if (customUrl && (customUrl.includes('root-forge.vercel.app') || customUrl.includes('localhost') || customUrl.includes('10.0.2.2'))) {
+    localStorage.removeItem('aisb_server_url');
+  } else if (customUrl && customUrl.trim()) {
     return customUrl.trim().replace(/\/+$/, '');
   }
 
@@ -13,13 +15,14 @@ export function getApiServerUrl() {
     return envUrl;
   }
 
-  // 3. Default to deployed production backend URL
+  // 3. Default to deployed production Render backend URL
   return DEFAULT_BACKEND_URL;
 }
 
 export function getApiBaseUrl() {
   const server = getApiServerUrl();
-  return server ? `${server}/api` : '/api';
+  if (!server) return '/api';
+  return server.endsWith('/api') ? server : `${server}/api`;
 }
 
 export function setApiServerUrl(url) {
@@ -106,9 +109,8 @@ async function request(endpoint, options = {}) {
         headers
       });
     } catch (networkErr) {
-      const isMobile = Capacitor.isNativePlatform();
-      const targetHint = baseUrl || (isMobile ? 'http://10.0.2.2:5005' : 'http://localhost:5005');
-      const err = new Error(`Cannot reach RootForge server at ${targetHint}. Please make sure the backend server is running on port 5005.`);
+      const targetHint = baseUrl || 'https://rootforge.onrender.com/api';
+      const err = new Error(`Cannot reach RootForge server at ${targetHint}. Please verify your internet connection or backend server status.`);
       err.isNetworkError = true;
       err.cause = networkErr;
       throw err;
