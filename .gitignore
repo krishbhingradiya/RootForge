@@ -14,11 +14,16 @@ build/
 .env.test.local
 .env.production.local
 
-# SQLite Database files
+# SQLite Database & SQL dump files
 *.db
 *.db-journal
 backend/prisma/*.db
 backend/prisma/*.db-journal
+*.sql
+*.load
+backend/csv_exports/
+*.zip
+backend/prisma/sql_tables/
 
 # Uploaded runtime files
 backend/uploads/*
