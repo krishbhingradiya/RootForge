@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+const DEFAULT_BACKEND_URL = 'https://root-forge.vercel.app';
 
 export function getApiServerUrl() {
   // 1. User manual override from in-app Settings
@@ -13,14 +13,8 @@ export function getApiServerUrl() {
     return envUrl;
   }
 
-  // 3. Native Capacitor runtime:
-  if (Capacitor.isNativePlatform()) {
-    // Connect to backend server on host machine in Android emulator
-    return 'http://10.0.2.2:5005';
-  }
-
-  // 4. Standard desktop browser (dev server proxies /api to backend):
-  return '';
+  // 3. Default to deployed production backend URL
+  return DEFAULT_BACKEND_URL;
 }
 
 export function getApiBaseUrl() {

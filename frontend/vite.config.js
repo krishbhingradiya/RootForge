@@ -7,12 +7,14 @@ export default defineConfig({
     port: 5175,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5005',
-        changeOrigin: true
+        target: 'https://root-forge.vercel.app',
+        changeOrigin: true,
+        secure: false
       },
       '/uploads': {
-        target: 'http://127.0.0.1:5005',
-        changeOrigin: true
+        target: 'https://root-forge.vercel.app',
+        changeOrigin: true,
+        secure: false
       }
     }
   }
