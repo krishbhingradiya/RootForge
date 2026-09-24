@@ -229,138 +229,153 @@ export const ChatVoiceInput = ({
   }, [onFinalTranscript, onTranscript, t]);
 
   /**
-   * Starts Web Speech API recognition session.
+   * Starts Web Speech API recognition session with real-time live streaming interim text.
    */
   const startWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognitionRef.current = recognition;
-
-    const speechLocale = SPEECH_LANG_MAP[lang] || 'en-US';
-    activeVoiceLangRef.current = lang;
-
-    console.log('[VOICE DEBUG] selectedLocale:', lang, 'recognitionLocale:', speechLocale);
-
-    recognition.lang = speechLocale;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    accumulatedFinalTextRef.current = '';
-    currentSessionFinalTextRef.current = '';
-    currentInterimTextRef.current = '';
-    restartCountRef.current = 0;
-    isListeningRef.current = true;
-    isUserStoppingRef.current = false;
-
-    recognition.onstart = () => {
-      setState('listening');
-    };
-
-    recognition.onresult = (event) => {
-      if (!isListeningRef.current) return;
-
-      let sessionFinal = '';
-      let interim = '';
-
-      // Crucial: Iterate through all results to maintain full transcript sequence
-      for (let i = 0; i < event.results.length; ++i) {
-        const res = event.results[i];
-        if (res.isFinal) {
-          sessionFinal += res[0].transcript + ' ';
-        } else {
-          interim += res[0].transcript;
-        }
+    if (!SpeechRecognition) {
+      if (hasMediaDevices && workspaceId) {
+        startMediaRecorderFallback();
+      } else {
+        setState('unsupported');
       }
-
-      currentSessionFinalTextRef.current = sessionFinal;
-      currentInterimTextRef.current = interim;
-
-      const fullPreview = `${accumulatedFinalTextRef.current} ${sessionFinal} ${interim}`.trim();
-
-      if (fullPreview) {
-        // Send preview to live input composer (replaces input, never duplicate-appends)
-        if (onInterimPreview) {
-          onInterimPreview(fullPreview);
-        } else if (onTranscript) {
-          onTranscript(fullPreview);
-        }
-
-        // Natural pause handling: 2.8 seconds of silence AFTER speech will finalize and submit
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          console.log('[VOICE DEBUG] Natural pause threshold reached (2800ms). Auto-finalizing speech...');
-          finalizeAndSubmit();
-        }, 2800);
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.warn('[VOICE DEBUG] Speech recognition error event:', event.error);
-      clearTimeout(silenceTimerRef.current);
-
-      if (event.error === 'no-speech') {
-        const hasText = `${accumulatedFinalTextRef.current} ${currentSessionFinalTextRef.current}`.trim();
-        if (!hasText && !isUserStoppingRef.current) {
-          setState('error');
-          setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-          resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
-        }
-        return;
-      }
-
-      if (event.error === 'not-allowed' || event.error === 'permission-denied') {
-        isListeningRef.current = false;
-        setState('permissionDenied');
-        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone access denied. Please allow microphone permissions.');
-        return;
-      }
-
-      if (event.error === 'network' || event.error === 'service-not-allowed') {
-        console.warn('[VOICE DEBUG] Web Speech network/service error. Attempting MediaRecorder fallback...');
-        // Fall back to server-side Gemini STT if mediaDevices available
-        if (hasMediaDevices && workspaceId) {
-          startMediaRecorderFallback();
-          return;
-        }
-        isListeningRef.current = false;
-        setState('error');
-        setErrorMessage(t('chat.voice.network') || 'Voice recognition network error. Please try again.');
-        resetTimerRef.current = setTimeout(() => setState('idle'), 4000);
-        return;
-      }
-
-      isListeningRef.current = false;
-      setState('error');
-      setErrorMessage(t('chat.voice.error') || 'Voice recognition error. Click to retry.');
-      resetTimerRef.current = setTimeout(() => setState('idle'), 3500);
-    };
-
-    recognition.onend = () => {
-      if (isListeningRef.current && !isUserStoppingRef.current) {
-        // Recognition naturally disconnected while user is still listening.
-        // Save current results and safely restart if under restart limit.
-        accumulatedFinalTextRef.current = `${accumulatedFinalTextRef.current} ${currentSessionFinalTextRef.current}`.trim();
-        currentSessionFinalTextRef.current = '';
-
-        if (restartCountRef.current < 4) {
-          restartCountRef.current += 1;
-          console.log('[VOICE DEBUG] Auto-recovering recognition connection (attempt', restartCountRef.current, ')');
-          try {
-            recognition.start();
-            return;
-          } catch (err) {
-            console.warn('[VOICE DEBUG] Failed to restart recognition:', err);
-          }
-        }
-      }
-
-      if (!isUserStoppingRef.current && state === 'listening') {
-        setState('idle');
-      }
-    };
+      return;
+    }
 
     try {
+      const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+
+      const speechLocale = SPEECH_LANG_MAP[lang] || 'en-US';
+      activeVoiceLangRef.current = lang;
+
+      console.log('[VOICE DEBUG] Starting real-time Web Speech session. Locale:', speechLocale);
+
+      recognition.lang = speechLocale;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      accumulatedFinalTextRef.current = '';
+      currentSessionFinalTextRef.current = '';
+      currentInterimTextRef.current = '';
+      restartCountRef.current = 0;
+      isListeningRef.current = true;
+      isUserStoppingRef.current = false;
+
+      recognition.onstart = () => {
+        console.log('[VOICE DEBUG] Web Speech listening active (real-time streaming enabled).');
+        setState('listening');
+        setErrorMessage('');
+      };
+
+      recognition.onresult = (event) => {
+        if (!isListeningRef.current) return;
+
+        let sessionFinal = '';
+        let interim = '';
+
+        // Extract both finalized words and live interim syllables in real-time
+        for (let i = 0; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            sessionFinal += res[0].transcript + ' ';
+          } else {
+            interim += res[0].transcript;
+          }
+        }
+
+        currentSessionFinalTextRef.current = sessionFinal;
+        currentInterimTextRef.current = interim;
+
+        const livePreview = `${accumulatedFinalTextRef.current} ${sessionFinal} ${interim}`.trim();
+
+        if (livePreview) {
+          // Immediately stream live speech to the input box in real-time
+          if (onInterimPreview) {
+            onInterimPreview(livePreview);
+          } else if (onTranscript) {
+            onTranscript(livePreview);
+          }
+
+          // Natural pause watchdog: auto-finalize after natural pause
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            console.log('[VOICE DEBUG] Natural pause reached. Finalizing real-time transcript...');
+            finalizeAndSubmit();
+          }, 2600);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('[VOICE DEBUG] Speech recognition error event:', event.error);
+        clearTimeout(silenceTimerRef.current);
+
+        if (event.error === 'no-speech') {
+          const hasText = `${accumulatedFinalTextRef.current} ${currentSessionFinalTextRef.current}`.trim();
+          if (!hasText && !isUserStoppingRef.current) {
+            setState('error');
+            setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
+            resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+          }
+          return;
+        }
+
+        if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+          // Attempt getUserMedia fallback to trigger native Android permission prompt if needed
+          if (hasMediaDevices && workspaceId) {
+            console.log('[VOICE DEBUG] Web Speech not allowed. Triggering getUserMedia fallback...');
+            startMediaRecorderFallback();
+            return;
+          }
+          isListeningRef.current = false;
+          setState('permissionDenied');
+          setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone access denied. Please allow microphone permissions.');
+          setTimeout(() => setState(prev => (prev === 'permissionDenied' ? 'idle' : prev)), 4000);
+          return;
+        }
+
+        if (event.error === 'network' || event.error === 'service-not-allowed') {
+          console.warn('[VOICE DEBUG] Web Speech service/network issue. Falling back to backend audio transcription...');
+          if (hasMediaDevices && workspaceId) {
+            startMediaRecorderFallback();
+            return;
+          }
+          isListeningRef.current = false;
+          setState('error');
+          setErrorMessage(t('chat.voice.network') || 'Voice recognition network error. Please try again.');
+          resetTimerRef.current = setTimeout(() => setState('idle'), 4000);
+          return;
+        }
+
+        isListeningRef.current = false;
+        setState('error');
+        setErrorMessage(t('chat.voice.error') || 'Voice recognition error. Click to retry.');
+        resetTimerRef.current = setTimeout(() => setState('idle'), 3500);
+      };
+
+      recognition.onend = () => {
+        if (isListeningRef.current && !isUserStoppingRef.current) {
+          accumulatedFinalTextRef.current = `${accumulatedFinalTextRef.current} ${currentSessionFinalTextRef.current}`.trim();
+          currentSessionFinalTextRef.current = '';
+
+          if (restartCountRef.current < 4) {
+            restartCountRef.current += 1;
+            console.log('[VOICE DEBUG] Auto-reconnecting real-time stream (attempt', restartCountRef.current, ')');
+            try {
+              recognition.start();
+              return;
+            } catch (err) {
+              console.warn('[VOICE DEBUG] Failed to restart recognition:', err);
+            }
+          }
+        }
+
+        if (!isUserStoppingRef.current && state === 'listening') {
+          setState('idle');
+        }
+      };
+
       setState('starting');
       recognition.start();
     } catch (err) {
@@ -372,7 +387,7 @@ export const ChatVoiceInput = ({
         resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
       }
     }
-  }, [lang, workspaceId, hasMediaDevices, onInterimPreview, onTranscript, finalizeAndSubmit, t]);
+  }, [lang, workspaceId, hasMediaDevices, onInterimPreview, onTranscript, finalizeAndSubmit, startMediaRecorderFallback, t]);
 
   /**
    * MediaRecorder + Backend Gemini Audio STT fallback.
