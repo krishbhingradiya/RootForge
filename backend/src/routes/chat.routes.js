@@ -49,7 +49,7 @@ router.get('/:id/chats', authenticate, async (req, res) => {
 router.post('/:id/chats', authenticate, async (req, res) => {
   try {
     const workspaceId = req.params.id;
-    const workspace = await assertWorkspaceWriteAccess(workspaceId, req.user);
+    const workspace = await assertWorkspaceAccess(workspaceId, req.user);
 
     const { stage = 'discovery', title = null, initialMessage = null } = req.body;
     const session = await chatSessionService.createChatSession(
@@ -120,7 +120,7 @@ router.post('/:id/chats/:chatId/messages', authenticate, async (req, res) => {
   const tTotalStart = Date.now();
   try {
     const { id: workspaceId, chatId } = req.params;
-    const session = await assertChatSessionAccess(chatId, workspaceId, req.user, { requireWrite: true });
+    const session = await assertChatSessionAccess(chatId, workspaceId, req.user);
 
     const { content, clientRequestId = null } = req.body;
     const uiLanguage = (req.body.uiLanguage || req.body.language || req.query.language || 'en').toLowerCase().trim();

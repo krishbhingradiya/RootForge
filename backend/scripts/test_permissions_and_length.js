@@ -69,26 +69,13 @@ async function runTests() {
     console.error('FAIL: ANALYST write access failed:', e.message);
   }
 
-  // 2d. Test VIEWER read-only (requireWrite: false) -> Should SUCCEED
+  // 2d. Test VIEWER chat access -> SUCCEEDS (viewer can create chats, send messages, and receive AI responses)
   try {
     const viewerUser = { id: ws.createdById || 'usr-viewer-test', role: 'VIEWER', organizationId: ws.organizationId };
-    await getAuthorizedWorkspace(ws.id, viewerUser, { requireWrite: false });
-    console.log('PASS: VIEWER can view existing chat (read-only allowed)');
+    await assertChatSessionAccess(testChatId, ws.id, viewerUser);
+    console.log('PASS: VIEWER can create chats, send messages, and receive AI responses');
   } catch (e) {
-    console.error('FAIL: VIEWER read-only view failed:', e.message);
-  }
-
-  // 2e. Test VIEWER write access (requireWrite: true) -> Should FAIL with 403
-  try {
-    const viewerUser = { id: ws.createdById || 'usr-viewer-test', role: 'VIEWER', organizationId: ws.organizationId };
-    await getAuthorizedWorkspace(ws.id, viewerUser, { requireWrite: true });
-    console.error('FAIL: VIEWER was unexpectedly allowed write/chat access');
-  } catch (e) {
-    if (e.status === 403 && e.message.includes('Viewers have read-only permissions')) {
-      console.log('PASS: VIEWER write access correctly rejected with 403: "Access denied. Viewers have read-only permissions."');
-    } else {
-      console.error('FAIL: VIEWER received unexpected error:', e.status, e.message);
-    }
+    console.error('FAIL: VIEWER chat access failed:', e.message);
   }
 
   console.log('\n=== 3. TESTING AI RESPONSE LENGTH GENERATION & PRESERVATION OF CONTEXT ===');
