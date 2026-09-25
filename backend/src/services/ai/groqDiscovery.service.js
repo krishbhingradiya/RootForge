@@ -1,25 +1,23 @@
 /**
- * RootForge AI Business Consultant — Groq-Powered Requirement Discovery Service
+ * RootForge AI Business Consultant — Exact 3-Question Groq Discovery Engine
  * 
- * Capabilities:
- * 1. Deep business requirements discovery using Groq (llama-3.3-70b-versatile).
- * 2. Intelligent counter-question formulation (ONE targeted question at a time).
- * 3. Dynamic context maintenance across multi-turn sessions.
- * 4. Zero hallucination: user requirements strictly separated from AI recommendations.
- * 5. Robust JSON schema validation and error-resilient recovery.
- * 6. Multilingual resilience (English, Gujarati, Hindi, Hinglish, language switching).
+ * Rules:
+ * 1. Exactly 3 sequential, targeted counter-questions per project discovery session.
+ * 2. Questions are generated and presented strictly ONE at a time.
+ * 3. Every question and answer is immutably stored in the session state.
+ * 4. Question 3 is always the final question; no Question 4 is ever asked.
+ * 5. After Answer 3, Groq generates the comprehensive final project requirements specification.
+ * 6. User requirements are strictly distinguished from AI recommendations.
+ * 7. Unanswered or unstated details are cataloged into missing_information.
  */
 
-// In-Memory Session Storage: sessionId -> SessionState
 const discoverySessions = new Map();
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export class GroqDiscoveryService {
   constructor() {
-    this.name = 'groq-discovery-service';
+    this.name = 'groq-3q-discovery-service';
     this.model = 'llama-3.3-70b-versatile';
-    
-    // Periodically clean up expired sessions
     setInterval(() => this._cleanupExpiredSessions(), 60 * 60 * 1000);
   }
 
@@ -32,16 +30,10 @@ export class GroqDiscoveryService {
     }
   }
 
-  /**
-   * Generates a new session ID
-   */
   generateSessionId() {
     return `disc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
-  /**
-   * Initializes or gets a discovery session
-   */
   getOrCreateSession(sessionId = null) {
     if (sessionId && discoverySessions.has(sessionId)) {
       return discoverySessions.get(sessionId);
@@ -52,164 +44,33 @@ export class GroqDiscoveryService {
       sessionId: newId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      conversationHistory: [],
-      projectSummary: '',
-      detectedIntent: '',
-      requirements: {
-        business_problem: '',
-        business_objective: '',
-        target_users: [],
-        stakeholders: [],
-        user_roles: [],
-        current_process: '',
-        pain_points: [],
-        future_process: '',
-        features: [],
-        workflows: [],
-        integrations: [],
-        ai_requirements: [],
-        automation_opportunities: [],
-        data_requirements: [],
-        security_requirements: [],
-        authentication_requirements: [],
-        reporting_requirements: [],
-        technical_constraints: [],
-        deployment_requirements: [],
-        timeline: null,
-        budget: null
-      },
-      missingInformation: [
-        'Business Problem & Objectives',
-        'Target Users & Roles',
-        'Core Features',
-        'User Workflows',
-        'Integrations & Data Scope',
-        'Security & Platform Constraints'
-      ],
-      aiRecommendations: [],
+      initialRequirement: '',
+      currentQuestionNumber: 0, // 0 = initial, 1 = Q1 active, 2 = Q2 active, 3 = Q3 active
+      totalQuestions: 3,
       conversationComplete: false,
-      lastQuestion: '',
-      lastQuestionReason: ''
+      questions: [], // Array of { question_number, question, question_reason, answer, timestamp }
+      finalRequirements: null
     };
 
     discoverySessions.set(newId, sessionState);
     return sessionState;
   }
 
-  /**
-   * Retrieves an existing session
-   */
   getSession(sessionId) {
     if (!sessionId) return null;
     return discoverySessions.get(sessionId) || null;
   }
 
-  /**
-   * Resets a session's conversation and requirements
-   */
   resetSession(sessionId) {
     if (!sessionId) return null;
     discoverySessions.delete(sessionId);
     return this.getOrCreateSession(sessionId);
   }
 
-  /**
-   * Builds the comprehensive Groq System Prompt
-   */
-  _buildSystemPrompt() {
-    return `You are the RootForge AI Business Consultant and Business Requirements Discovery Agent.
-Your primary responsibility is to understand a user's business idea and collect enough information to create an implementation-ready software project specification.
-
-You must think like:
-- Senior Business Analyst
-- AI Business Consultant
-- Product Manager
-- Solution Architect
-
-DISCOVERY PHILOSOPHY:
-Focus on understanding the business problem, target users, workflows, and core functionality before proposing technical solutions.
-
-DISCOVERY OBJECTIVES:
-1. Business idea & core concept
-2. Business problem & opportunity
-3. Business objective & success metrics
-4. Target users & customer segments
-5. Stakeholders & decision makers
-6. User roles & permissions
-7. Current process & baseline
-8. Current pain points & bottlenecks
-9. Desired future process & target state
-10. Core features & functional requirements
-11. Critical user workflows & approval paths
-12. Integrations (APIs, payment gateways, ERPs, CRMs, 3rd party tools)
-13. AI requirements & capabilities
-14. Automation opportunities
-15. Data requirements & storage needs
-16. Security & compliance requirements
-17. Authentication & authorization requirements
-18. Reporting, analytics & dashboards
-19. Technical constraints & platform choices (Web, Mobile, Cloud)
-20. Deployment requirements
-21. Expected business outcomes & ROI
-22. Timeline & budget (if user volunteers them)
-
-CRITICAL RULES:
-1. ONE COUNTER-QUESTION: Ask exactly ONE clear, concise, targeted counter-question per turn.
-2. MISSING INFO TARGETING: The question must focus on the most critical piece of missing business information.
-3. NEVER REPEAT: NEVER ask for information that is already provided in the conversation history or accumulated requirements.
-4. DO NOT INVENT REQUIREMENTS: Only record requirements explicitly stated or confirmed by the user. If something is unknown or not mentioned, keep it in "missing_information".
-5. CLEAR AI RECOMMENDATIONS: Place AI architectural suggestions or best-practice advice into "ai_recommendations" only, never in user "requirements".
-6. COMPLETION EVALUATION: Set "conversation_complete": true ONLY when you have collected enough concrete details across problem, target users, core features, workflows, and tech scope to write a full engineering spec (usually after 5-8 rich turns). Otherwise set "conversation_complete": false.
-7. MULTILINGUAL RESILIENCE: If the user communicates in Gujarati, Hindi, Hinglish, or changes language, understand their intent fully. Formulate your project summary and requirements in clear English, and formulate your "next_question" naturally.
-8. RESILIENCE TO SHORT/SKIP/UNKNOWN:
-   - If user says "I don't know" or "skip", mark that item as unknown in missing_information and ask about a different topic.
-   - If user provides very short answers ("yes", "grocery app"), acknowledge and probe specifically into user roles or features.
-   - If user asks the AI a question, provide a helpful 1-sentence answer and seamlessly ask your discovery counter-question.
-
-RESPONSE FORMAT:
-Return STRICTLY a valid JSON object with NO markdown backticks or commentary. Structure:
-{
-  "conversation_complete": false,
-  "detected_intent": "Brief description of user's core intent",
-  "project_summary": "Concise summary of the discovered business and system requirements so far.",
-  "next_question": "Your single, polite, concise, and highly specific counter-question.",
-  "question_reason": "Why this specific question is needed now.",
-  "requirements": {
-    "business_problem": "...",
-    "business_objective": "...",
-    "target_users": ["..."],
-    "stakeholders": ["..."],
-    "user_roles": ["..."],
-    "current_process": "...",
-    "pain_points": ["..."],
-    "future_process": "...",
-    "features": ["..."],
-    "workflows": ["..."],
-    "integrations": ["..."],
-    "ai_requirements": ["..."],
-    "automation_opportunities": ["..."],
-    "data_requirements": ["..."],
-    "security_requirements": ["..."],
-    "authentication_requirements": ["..."],
-    "reporting_requirements": ["..."],
-    "technical_constraints": ["..."],
-    "deployment_requirements": ["..."],
-    "timeline": null,
-    "budget": null
-  },
-  "missing_information": ["..."],
-  "ai_recommendations": ["..."]
-}`;
-  }
-
-  /**
-   * Safely parses JSON output from LLM, handling backticks and malformed snippets
-   */
   _safeParseJson(rawText) {
     if (!rawText || typeof rawText !== 'string') return null;
-
     let cleanText = rawText.trim();
-    // Remove markdown code block fences if present
+
     if (cleanText.startsWith('```json')) {
       cleanText = cleanText.slice(7);
     } else if (cleanText.startsWith('```')) {
@@ -220,7 +81,6 @@ Return STRICTLY a valid JSON object with NO markdown backticks or commentary. St
     }
     cleanText = cleanText.trim();
 
-    // Find opening and closing curly brackets
     const firstBrace = cleanText.indexOf('{');
     const lastBrace = cleanText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -229,31 +89,23 @@ Return STRICTLY a valid JSON object with NO markdown backticks or commentary. St
 
     try {
       return JSON.parse(cleanText);
-    } catch (e1) {
-      // Try soft repairs (e.g. trailing commas, escaped quotes)
+    } catch {
       try {
-        const repaired = cleanText
-          .replace(/,\s*([\]}])/g, '$1') // remove trailing commas
-          .replace(/\\'/g, "'");
+        const repaired = cleanText.replace(/,\s*([\]}])/g, '$1').replace(/\\'/g, "'");
         return JSON.parse(repaired);
-      } catch (e2) {
-        console.warn('[GroqDiscovery] JSON parse fallback failed:', e2.message);
+      } catch {
         return null;
       }
     }
   }
 
-  /**
-   * Calls Groq Chat Completions API with fallback to Gemini
-   */
-  async _callLLM(systemPrompt, userPrompt) {
+  async _callGroq(systemPrompt, userPrompt) {
     const groqKey = (process.env.GROQ_API_KEY || '').trim();
     const geminiKey = (process.env.AI_API_KEY || '').trim();
 
-    // 1. Primary: Groq API
+    // 1. Try Groq (Llama 3.3 70B)
     if (groqKey) {
       try {
-        console.log(`[GroqDiscovery] Requesting Groq model: ${this.model}`);
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -267,32 +119,24 @@ Return STRICTLY a valid JSON object with NO markdown backticks or commentary. St
               { role: 'user', content: userPrompt }
             ],
             response_format: { type: 'json_object' },
-            temperature: 0.25,
-            max_tokens: 2000
+            temperature: 0.2,
+            max_tokens: 2200
           })
         });
 
         if (res.ok) {
           const data = await res.json();
-          const content = data.choices?.[0]?.message?.content;
-          const parsed = this._safeParseJson(content);
-          if (parsed && (parsed.next_question || parsed.requirements)) {
-            console.log(`[GroqDiscovery] Groq response parsed successfully. Completion: ${parsed.conversation_complete}`);
-            return parsed;
-          }
-        } else {
-          const errText = await res.text();
-          console.warn(`[GroqDiscovery] Groq API returned status ${res.status}:`, errText);
+          const parsed = this._safeParseJson(data.choices?.[0]?.message?.content);
+          if (parsed) return parsed;
         }
       } catch (err) {
-        console.warn(`[GroqDiscovery] Groq fetch error, attempting fallback:`, err.message);
+        console.warn('[GroqDiscovery] Groq API warning:', err.message);
       }
     }
 
-    // 2. Fallback: Google Gemini
+    // 2. Try Gemini Fallback
     if (geminiKey) {
       try {
-        console.log('[GroqDiscovery] Using Gemini fallback for discovery...');
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
         const res = await fetch(endpoint, {
           method: 'POST',
@@ -301,165 +145,326 @@ Return STRICTLY a valid JSON object with NO markdown backticks or commentary. St
             'x-goog-api-key': geminiKey
           },
           body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: systemPrompt }]
-            },
+            systemInstruction: { parts: [{ text: systemPrompt }] },
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: 0.25,
-              maxOutputTokens: 2000
-            }
+            generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 2200 }
           })
         });
 
         if (res.ok) {
           const data = await res.json();
-          const raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          const parsed = this._safeParseJson(raw);
-          if (parsed && (parsed.next_question || parsed.requirements)) {
-            console.log('[GroqDiscovery] Gemini fallback parsed successfully.');
-            return parsed;
-          }
+          const parsed = this._safeParseJson(data.candidates?.[0]?.content?.parts?.[0]?.text);
+          if (parsed) return parsed;
         }
       } catch (err) {
-        console.warn('[GroqDiscovery] Gemini fallback error:', err.message);
+        console.warn('[GroqDiscovery] Gemini fallback warning:', err.message);
       }
     }
 
-    // 3. Guaranteed Deterministic Fallback (No Server Crash)
     return null;
   }
 
   /**
-   * Deterministic fallback when all external LLM APIs fail or are offline
+   * Generates a single targeted question (Q1, Q2, or Q3)
    */
-  _generateDeterministicFallback(userMessage, session) {
-    const text = (userMessage || '').toLowerCase();
-    const historyLen = session.conversationHistory.length;
+  async _generateSingleQuestion({ questionNumber, initialRequirement, previousQA = [] }) {
+    const qaContext = previousQA
+      .map(qa => `Question ${qa.question_number}: "${qa.question}"\nUser Answer: "${qa.answer}"`)
+      .join('\n\n');
 
-    let nextQ = "Who are the primary target users of this platform (e.g. end-customers, internal staff, administrators)?";
-    let reason = "Identify key user groups and access roles.";
+    const systemPrompt = `You are RootForge AI Senior Business Consultant and Enterprise Architect.
+You are running an EXACT 3-QUESTION discovery process for a software project.
 
-    if (text.includes('grocery') || text.includes('food') || text.includes('delivery') || text.includes('ecommerce')) {
-      nextQ = "Will grocery store vendors manage their own product catalogs and inventory, or will your team manage everything centrally?";
-      reason = "Clarify multi-vendor vs single-tenant catalog management workflow.";
-    } else if (text.includes('customer') || text.includes('support') || text.includes('ticket')) {
-      nextQ = "Should incoming customer requests be automatically categorized and routed by AI, or assigned manually by support leads?";
-      reason = "Clarify AI automation vs manual triage process.";
-    } else if (historyLen >= 4) {
-      nextQ = "What third-party integrations (such as payment gateways, SMS/WhatsApp APIs, or ERPs) will be required on launch?";
-      reason = "Identify external integrations and data dependencies.";
+Current Question to generate: Question ${questionNumber} of 3.
+
+RULES:
+1. Generate EXACTLY ONE question.
+2. The question must be concise, natural, and directly uncover the MOST VALUABLE missing business information.
+3. Priority focus areas:
+   - Business problem & core value
+   - Target user roles & permissions
+   - Core workflows & features
+   - Key integrations & constraints
+4. NEVER ask for information already provided in the Initial Requirement or Previous Q&A.
+5. NEVER generate multiple questions in one response.
+6. The question must be 1 to 2 sentences max.
+
+Return STRICT JSON:
+{
+  "question_number": ${questionNumber},
+  "question": "Your single, polite, specific counter-question.",
+  "question_reason": "Why this specific question is needed now.",
+  "conversation_complete": false
+}`;
+
+    const userPrompt = `INITIAL PROJECT REQUIREMENT:
+"${initialRequirement}"
+
+PREVIOUS QUESTIONS & ANSWERS SO FAR:
+${qaContext || "(None yet - this is Question 1)"}
+
+Generate Question ${questionNumber} now.`;
+
+    const aiRes = await this._callGroq(systemPrompt, userPrompt);
+    if (aiRes && aiRes.question) {
+      return {
+        question_number: questionNumber,
+        question: aiRes.question.trim(),
+        question_reason: aiRes.question_reason || `Discover critical requirements for stage ${questionNumber}.`,
+        conversation_complete: false
+      };
+    }
+
+    // Deterministic rule-based fallback if offline
+    let fallbackQ = "Who are the primary user roles that will access this platform?";
+    let fallbackReason = "Identify key user groups.";
+    if (questionNumber === 2) {
+      fallbackQ = "What is the single most critical workflow or transaction users will perform daily?";
+      fallbackReason = "Define core application workflow.";
+    } else if (questionNumber === 3) {
+      fallbackQ = "What external systems, APIs, or payment processors will this system need to integrate with?";
+      fallbackReason = "Identify external integrations and data boundaries.";
     }
 
     return {
-      conversation_complete: historyLen >= 8,
-      detected_intent: userMessage.slice(0, 100),
-      project_summary: session.projectSummary || `Requirements discovery in progress for: ${userMessage.slice(0, 80)}.`,
-      next_question: nextQ,
-      question_reason: reason,
-      requirements: session.requirements,
-      missing_information: session.missingInformation,
-      ai_recommendations: [
-        "Recommend designing a cloud-native architecture with RESTful APIs and PostgreSQL."
-      ]
+      question_number: questionNumber,
+      question: fallbackQ,
+      question_reason: fallbackReason,
+      conversation_complete: false
     };
   }
 
   /**
-   * Main Discovery Processing Method
+   * Generates the final comprehensive requirements document after Answer 3
    */
-  async processDiscoveryTurn({ sessionId = null, message = '' }) {
-    if (!message || !message.trim()) {
-      const session = this.getOrCreateSession(sessionId);
-      return {
-        sessionId: session.sessionId,
-        conversation_complete: session.conversationComplete,
-        detected_intent: session.detectedIntent,
-        project_summary: session.projectSummary,
-        next_question: session.lastQuestion || "Please share your project idea or business problem to begin discovery.",
-        question_reason: "Awaiting user input.",
-        requirements: session.requirements,
-        missing_information: session.missingInformation,
-        ai_recommendations: session.aiRecommendations
-      };
-    }
-
-    const trimmedMsg = message.trim();
-    const session = this.getOrCreateSession(sessionId);
-
-    // Record user turn in history
-    session.conversationHistory.push({
-      role: 'user',
-      content: trimmedMsg,
-      timestamp: new Date().toISOString()
-    });
-
-    // Build context-rich prompt for Groq
-    const historyContext = session.conversationHistory
-      .map(h => `${h.role.toUpperCase()}: ${h.content}`)
+  async _generateFinalRequirements({ initialRequirement, allQA = [] }) {
+    const qaContext = allQA
+      .map(qa => `Question ${qa.question_number}: "${qa.question}"\nUser Answer ${qa.question_number}: "${qa.answer}"`)
       .join('\n\n');
 
-    const promptPayload = `COMPLETE CONVERSATION HISTORY:
-${historyContext}
+    const systemPrompt = `You are RootForge Principal Solutions Architect.
+The user has completed all 3 discovery questions. Synthesize the complete project requirement specification based STRICTLY on what the user stated.
 
-CURRENT ACCUMULATED REQUIREMENTS:
-${JSON.stringify(session.requirements, null, 2)}
+RULES:
+1. Do NOT invent or fabricate requirements. If an area was not mentioned, leave it empty or list it under "missing_information".
+2. Clearly separate User-Provided Requirements from AI Architectural Recommendations.
+3. Return STRICT JSON with this EXACT structure:
 
-CURRENT KNOWN MISSING INFORMATION:
-${JSON.stringify(session.missingInformation, null, 2)}
+{
+  "conversation_complete": true,
+  "initial_requirement": "...",
+  "project_summary": "Comprehensive 2-3 sentence overview of the discovered solution.",
+  "business_problem": "The core business problem or opportunity identified.",
+  "business_objective": "The main objective and desired business outcome.",
+  "target_users": ["User Role 1", "User Role 2"],
+  "core_requirements": ["Requirement 1", "Requirement 2", "..."],
+  "important_workflows": ["Workflow 1", "Workflow 2"],
+  "integrations": ["Integration 1", "Integration 2"],
+  "constraints": ["Constraint 1"],
+  "missing_information": ["Missing item 1", "Missing item 2"],
+  "ai_recommendations": ["AI recommendation 1", "AI recommendation 2"]
+}`;
 
-LATEST USER MESSAGE:
-"${trimmedMsg}"
+    const userPrompt = `INITIAL USER REQUIREMENT:
+"${initialRequirement}"
 
-Analyze the latest user message against the entire conversation history. Update the requirements, identify what is still missing, and generate the next single intelligent counter-question.`;
+COMPLETE 3-TURN DISCOVERY DIALOGUE:
+${qaContext}
 
-    const systemPrompt = this._buildSystemPrompt();
+Generate the final synthesis JSON now.`;
 
-    // Call Groq / Fallback LLM
-    let aiResponse = await this._callLLM(systemPrompt, promptPayload);
-
-    if (!aiResponse) {
-      console.warn('[GroqDiscovery] Using deterministic fallback analysis');
-      aiResponse = this._generateDeterministicFallback(trimmedMsg, session);
-    }
-
-    // Merge & Update Session State
-    session.updatedAt = new Date().toISOString();
-    session.conversationComplete = Boolean(aiResponse.conversation_complete);
-    session.detectedIntent = aiResponse.detected_intent || session.detectedIntent || trimmedMsg.slice(0, 100);
-    session.projectSummary = aiResponse.project_summary || session.projectSummary || '';
-    session.lastQuestion = aiResponse.next_question || session.lastQuestion || '';
-    session.lastQuestionReason = aiResponse.question_reason || '';
-    session.missingInformation = Array.isArray(aiResponse.missing_information) ? aiResponse.missing_information : session.missingInformation;
-    session.aiRecommendations = Array.isArray(aiResponse.ai_recommendations) ? aiResponse.ai_recommendations : session.aiRecommendations;
-
-    // Merge structured requirements
-    if (aiResponse.requirements && typeof aiResponse.requirements === 'object') {
-      session.requirements = {
-        ...session.requirements,
-        ...aiResponse.requirements
+    const aiRes = await this._callGroq(systemPrompt, userPrompt);
+    if (aiRes && aiRes.project_summary) {
+      return {
+        conversation_complete: true,
+        initial_requirement: initialRequirement,
+        questions_and_answers: allQA.map(q => ({
+          question_number: q.question_number,
+          question: q.question,
+          answer: q.answer
+        })),
+        project_summary: aiRes.project_summary,
+        business_problem: aiRes.business_problem || "Not specified by user.",
+        business_objective: aiRes.business_objective || "Not specified by user.",
+        target_users: Array.isArray(aiRes.target_users) ? aiRes.target_users : [],
+        core_requirements: Array.isArray(aiRes.core_requirements) ? aiRes.core_requirements : (Array.isArray(aiRes.requirements) ? aiRes.requirements : []),
+        important_workflows: Array.isArray(aiRes.important_workflows) ? aiRes.important_workflows : [],
+        integrations: Array.isArray(aiRes.integrations) ? aiRes.integrations : [],
+        constraints: Array.isArray(aiRes.constraints) ? aiRes.constraints : [],
+        missing_information: Array.isArray(aiRes.missing_information) ? aiRes.missing_information : [],
+        ai_recommendations: Array.isArray(aiRes.ai_recommendations) ? aiRes.ai_recommendations : []
       };
     }
 
-    // Record assistant turn in history
-    session.conversationHistory.push({
-      role: 'assistant',
-      content: session.lastQuestion,
-      timestamp: new Date().toISOString()
-    });
+    // Fallback synthesis
+    return {
+      conversation_complete: true,
+      initial_requirement: initialRequirement,
+      questions_and_answers: allQA.map(q => ({
+        question_number: q.question_number,
+        question: q.question,
+        answer: q.answer
+      })),
+      project_summary: `Discovered solution for: ${initialRequirement}`,
+      business_problem: initialRequirement,
+      business_objective: "Build scalable software solution with RootForge.",
+      target_users: [allQA[0]?.answer || "End users"],
+      core_requirements: [allQA[1]?.answer || "Core functionality"],
+      important_workflows: [allQA[1]?.answer || "Primary workflow"],
+      integrations: [allQA[2]?.answer || "Standard APIs"],
+      constraints: ["Cloud deployment"],
+      missing_information: ["Detailed data schemas", "SLA & Performance thresholds"],
+      ai_recommendations: ["Design modular architecture with REST APIs and PostgreSQL."]
+    };
+  }
 
+  /**
+   * Main state machine for processing discovery turns
+   */
+  async processDiscoveryTurn({ sessionId = null, message = '' }) {
+    const session = this.getOrCreateSession(sessionId);
+    const trimmed = (message || '').trim();
+
+    session.updatedAt = new Date().toISOString();
+
+    // STATE 0: Initial Requirement received -> Generate Question 1
+    if (session.currentQuestionNumber === 0) {
+      if (!trimmed) {
+        return {
+          sessionId: session.sessionId,
+          currentQuestionNumber: 0,
+          total_questions: 3,
+          conversation_complete: false,
+          message: "Please enter your initial business requirement to start."
+        };
+      }
+
+      session.initialRequirement = trimmed;
+
+      const q1 = await this._generateSingleQuestion({
+        questionNumber: 1,
+        initialRequirement: session.initialRequirement,
+        previousQA: []
+      });
+
+      session.currentQuestionNumber = 1;
+      session.questions = [
+        {
+          question_number: 1,
+          question: q1.question,
+          question_reason: q1.question_reason,
+          answer: null,
+          timestamp: new Date().toISOString()
+        }
+      ];
+
+      return {
+        sessionId: session.sessionId,
+        question_number: 1,
+        question: q1.question,
+        question_reason: q1.question_reason,
+        currentQuestionNumber: 1,
+        total_questions: 3,
+        conversation_complete: false,
+        questions_so_far: session.questions
+      };
+    }
+
+    // STATE 1: User is answering Question 1 -> Save Answer 1, Generate Question 2
+    if (session.currentQuestionNumber === 1) {
+      session.questions[0].answer = trimmed;
+      session.questions[0].answeredAt = new Date().toISOString();
+
+      const q2 = await this._generateSingleQuestion({
+        questionNumber: 2,
+        initialRequirement: session.initialRequirement,
+        previousQA: [session.questions[0]]
+      });
+
+      session.currentQuestionNumber = 2;
+      session.questions.push({
+        question_number: 2,
+        question: q2.question,
+        question_reason: q2.question_reason,
+        answer: null,
+        timestamp: new Date().toISOString()
+      });
+
+      return {
+        sessionId: session.sessionId,
+        question_number: 2,
+        question: q2.question,
+        question_reason: q2.question_reason,
+        currentQuestionNumber: 2,
+        total_questions: 3,
+        conversation_complete: false,
+        questions_so_far: session.questions
+      };
+    }
+
+    // STATE 2: User is answering Question 2 -> Save Answer 2, Generate Question 3 (Final Question)
+    if (session.currentQuestionNumber === 2) {
+      session.questions[1].answer = trimmed;
+      session.questions[1].answeredAt = new Date().toISOString();
+
+      const q3 = await this._generateSingleQuestion({
+        questionNumber: 3,
+        initialRequirement: session.initialRequirement,
+        previousQA: [session.questions[0], session.questions[1]]
+      });
+
+      session.currentQuestionNumber = 3;
+      session.questions.push({
+        question_number: 3,
+        question: q3.question,
+        question_reason: q3.question_reason,
+        answer: null,
+        timestamp: new Date().toISOString()
+      });
+
+      return {
+        sessionId: session.sessionId,
+        question_number: 3,
+        question: q3.question,
+        question_reason: q3.question_reason,
+        currentQuestionNumber: 3,
+        total_questions: 3,
+        conversation_complete: false,
+        questions_so_far: session.questions
+      };
+    }
+
+    // STATE 3: User is answering Question 3 (FINAL ANSWER) -> Save Answer 3, Synthesize Final Requirements, Set complete = true
+    if (session.currentQuestionNumber === 3) {
+      session.questions[2].answer = trimmed;
+      session.questions[2].answeredAt = new Date().toISOString();
+
+      const finalSynthesis = await this._generateFinalRequirements({
+        initialRequirement: session.initialRequirement,
+        allQA: session.questions
+      });
+
+      session.conversationComplete = true;
+      session.finalRequirements = finalSynthesis;
+
+      return {
+        sessionId: session.sessionId,
+        question_number: 3,
+        currentQuestionNumber: 3,
+        total_questions: 3,
+        conversation_complete: true,
+        ...finalSynthesis,
+        final_requirements: finalSynthesis
+      };
+    }
+
+    // If session is already complete
     return {
       sessionId: session.sessionId,
-      conversation_complete: session.conversationComplete,
-      detected_intent: session.detectedIntent,
-      project_summary: session.projectSummary,
-      next_question: session.lastQuestion,
-      question_reason: session.lastQuestionReason,
-      requirements: session.requirements,
-      missing_information: session.missingInformation,
-      ai_recommendations: session.aiRecommendations,
-      conversation_history_length: session.conversationHistory.length
+      conversation_complete: true,
+      message: "Discovery already complete for this session.",
+      ...session.finalRequirements,
+      final_requirements: session.finalRequirements
     };
   }
 }

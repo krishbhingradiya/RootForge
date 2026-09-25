@@ -55,10 +55,10 @@ router.post('/start', async (req, res) => {
     res.json({
       success: true,
       sessionId: session.sessionId,
+      currentQuestionNumber: session.currentQuestionNumber,
+      total_questions: 3,
       conversation_complete: false,
-      message: 'Discovery session initialized. Send your first business requirement to begin.',
-      requirements: session.requirements,
-      missing_information: session.missingInformation
+      message: 'Discovery session initialized. Send your initial business requirement to begin.'
     });
   } catch (err) {
     console.error('[AiDiscoveryRoutes] Start session error:', err);
@@ -153,15 +153,12 @@ router.get('/:sessionId', (req, res) => {
   res.json({
     success: true,
     sessionId: session.sessionId,
+    initial_requirement: session.initialRequirement,
+    currentQuestionNumber: session.currentQuestionNumber,
+    total_questions: session.totalQuestions,
     conversation_complete: session.conversationComplete,
-    detected_intent: session.detectedIntent,
-    project_summary: session.projectSummary,
-    next_question: session.lastQuestion,
-    question_reason: session.lastQuestionReason,
-    requirements: session.requirements,
-    missing_information: session.missingInformation,
-    ai_recommendations: session.aiRecommendations,
-    conversation_history: session.conversationHistory,
+    questions: session.questions,
+    final_requirements: session.finalRequirements,
     created_at: session.createdAt,
     updated_at: session.updatedAt
   });
@@ -184,8 +181,10 @@ router.post('/reset', (req, res) => {
   res.json({
     success: true,
     sessionId: session.sessionId,
+    currentQuestionNumber: session.currentQuestionNumber,
     message: 'Discovery session has been reset.'
   });
 });
 
 export default router;
+

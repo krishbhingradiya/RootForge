@@ -1,23 +1,21 @@
 /**
- * RootForge AI Business Consultant — Groq Requirement Discovery Verification Test Suite
+ * RootForge AI Business Consultant — EXACT 3-QUESTION GROQ DISCOVERY TEST SUITE
  * 
- * Verifies:
- * 1. Single-shot and multi-turn session creation (POST /api/ai/discovery/start & /message)
- * 2. Scenario 1: Very short requirement ("I want an ecommerce app.")
- * 3. Scenario 2: Detailed requirement (Online grocery delivery platform for local stores)
- * 4. Scenario 3: Intelligent counter-question formulation (ONE targeted question)
- * 5. Scenario 4: Context awareness & avoiding repeated questions
- * 6. Scenario 5: User says "I don't know" or "skip" (marked as unknown, continues discovery)
- * 7. Scenario 6: Multilingual understanding (Gujarati & Hindi input)
- * 8. Scenario 7: User asks AI a question (gracefully handles and steers back to discovery)
- * 9. Scenario 8: Schema compliance (JSON fields: conversation_complete, requirements, missing_information, ai_recommendations)
+ * Tests:
+ * 1. Exact 3-Question sequential flow (Q1 -> A1 -> Q2 -> A2 -> Q3 -> A3 -> Complete).
+ * 2. Session maintains currentQuestionNumber: 0 -> 1 -> 2 -> 3.
+ * 3. Only ONE question presented at each turn.
+ * 4. Every answer is stored with question number and timestamp.
+ * 5. NO Question 4 is ever asked.
+ * 6. Final response after Answer 3 produces combined project understanding, summary, core requirements, and AI recommendations.
+ * 7. Context awareness: Questions adapt dynamically based on previous answers without repetition.
  */
 
 import { groqDiscoveryService } from '../services/ai/groqDiscovery.service.js';
 
-async function runGroqDiscoveryTests() {
+async function runExact3QuestionTests() {
   console.log('\n======================================================');
-  console.log('  ROOTFORGE GROQ REQUIREMENT DISCOVERY TEST SUITE');
+  console.log('  EXACT 3-QUESTION GROQ DISCOVERY VERIFICATION SUITE');
   console.log('======================================================\n');
 
   let passed = 0;
@@ -33,94 +31,84 @@ async function runGroqDiscoveryTests() {
     }
   }
 
-  // --- [1] Session Management ---
-  console.log('--- [1] Session Lifecycle & State Management ---');
+  // --- [TEST 1 & 2] Complete 3-Question Flow ---
+  console.log('--- [TEST 1] Step-by-Step 3-Question Discovery Flow ---');
+  
+  // Step 0: Start session
   const session = groqDiscoveryService.getOrCreateSession();
-  assert(session && session.sessionId.startsWith('disc_'), `Generated valid discovery session ID: ${session.sessionId}`);
-  assert(session.conversationHistory.length === 0, 'Initial session conversation history is empty');
-  assert(session.conversationComplete === false, 'Initial session is not complete');
-  assert(Array.isArray(session.missingInformation) && session.missingInformation.length > 0, 'Initial session has discovery checklist items');
+  assert(session.currentQuestionNumber === 0, 'Initial session state is at Question 0');
+  assert(session.conversationComplete === false, 'Initial session conversation_complete is false');
 
-  // --- [2] Scenario 1: Short Requirement ---
-  console.log('\n--- [2] Scenario 1: Short Requirement ("I want an ecommerce app.") ---');
-  const shortResult = await groqDiscoveryService.processDiscoveryTurn({
+  // Step 1: Initial Requirement -> Generates Question 1 ONLY
+  console.log('\n-> Sending Initial Requirement...');
+  const res1 = await groqDiscoveryService.processDiscoveryTurn({
     sessionId: session.sessionId,
-    message: 'I want an ecommerce app.'
+    message: 'I want to build an online grocery delivery platform for local grocery stores.'
   });
 
-  assert(typeof shortResult.conversation_complete === 'boolean', 'Returns valid boolean conversation_complete');
-  assert(Boolean(shortResult.next_question && shortResult.next_question.trim()), `Generated counter-question: "${shortResult.next_question}"`);
-  assert(Boolean(shortResult.question_reason), `Provided question reason: "${shortResult.question_reason}"`);
-  assert(typeof shortResult.requirements === 'object', 'Returned structured requirements object');
-  assert(Array.isArray(shortResult.missing_information), 'Returned missing_information array');
+  assert(res1.currentQuestionNumber === 1, 'Session state progressed to Question 1 of 3');
+  assert(res1.question_number === 1, 'Response specifies question_number = 1');
+  assert(Boolean(res1.question && res1.question.trim()), `AI Generated Question 1: "${res1.question}"`);
+  assert(res1.conversation_complete === false, 'conversation_complete is false at Question 1');
+  assert(!res1.question.includes('Question 2'), 'Did NOT generate multiple questions at once');
 
-  // --- [3] Scenario 2: Detailed Grocery Requirement ---
-  console.log('\n--- [3] Scenario 2: Detailed Grocery Requirement (Target Users & Workflow) ---');
-  const grocerySession = groqDiscoveryService.getOrCreateSession();
-  const detailedResult = await groqDiscoveryService.processDiscoveryTurn({
-    sessionId: grocerySession.sessionId,
-    message: 'I want to build an online grocery delivery platform for local grocery stores. Customers should be able to order products online and get them delivered.'
+  // Step 2: Answer 1 -> Generates Question 2 ONLY
+  console.log('\n-> Sending Answer 1...');
+  const res2 = await groqDiscoveryService.processDiscoveryTurn({
+    sessionId: session.sessionId,
+    message: 'Primary users are local retail customers, store owners managing inventory, and delivery drivers.'
   });
 
-  console.log(`    Project Summary: ${detailedResult.project_summary}`);
-  console.log(`    Next Counter-Question: "${detailedResult.next_question}"`);
-  console.log(`    Reason: ${detailedResult.question_reason}`);
+  assert(res2.currentQuestionNumber === 2, 'Session state progressed to Question 2 of 3');
+  assert(res2.question_number === 2, 'Response specifies question_number = 2');
+  assert(Boolean(res2.question && res2.question.trim()), `AI Generated Question 2: "${res2.question}"`);
+  assert(res2.conversation_complete === false, 'conversation_complete is false at Question 2');
+  assert(!res2.question.toLowerCase().includes('who are the primary users'), 'Question 2 does NOT repeat Question 1 topic');
 
-  assert(Boolean(detailedResult.project_summary), 'Generated coherent project summary');
-  assert(detailedResult.next_question.length > 10, 'Generated specific, intelligent counter-question');
-  assert(!detailedResult.conversation_complete, 'Conversation remains open for follow-up details');
-
-  // --- [4] Multi-turn Follow-up without repeating ---
-  console.log('\n--- [4] Scenario 3: Context-Aware Turn 2 Follow-Up ---');
-  const turn2Result = await groqDiscoveryService.processDiscoveryTurn({
-    sessionId: grocerySession.sessionId,
-    message: 'Primary users are local customers ordering on mobile, store owners managing inventory on web dashboard, and delivery drivers using a mobile app.'
+  // Step 3: Answer 2 -> Generates Question 3 ONLY (Final Question)
+  console.log('\n-> Sending Answer 2...');
+  const res3 = await groqDiscoveryService.processDiscoveryTurn({
+    sessionId: session.sessionId,
+    message: 'The main goal is to allow customers to order groceries with 30-minute delivery and eliminate phone ordering mistakes.'
   });
 
-  console.log(`    Updated Summary: ${turn2Result.project_summary}`);
-  console.log(`    Next Question (Turn 2): "${turn2Result.next_question}"`);
+  assert(res3.currentQuestionNumber === 3, 'Session state progressed to Question 3 of 3 (Final Question)');
+  assert(res3.question_number === 3, 'Response specifies question_number = 3');
+  assert(Boolean(res3.question && res3.question.trim()), `AI Generated Question 3: "${res3.question}"`);
+  assert(res3.conversation_complete === false, 'conversation_complete is false before Answer 3');
 
-  assert(turn2Result.conversation_history_length >= 4, 'Conversation history maintained across turns');
-  assert(!turn2Result.next_question.toLowerCase().includes('who will use the platform'), 'Did not repeat target user question');
-
-  // --- [5] Scenario 4: User says "I don't know" / "skip" ---
-  console.log('\n--- [5] Scenario 4: Handling "I don\'t know" / "skip" gracefully ---');
-  const skipResult = await groqDiscoveryService.processDiscoveryTurn({
-    sessionId: grocerySession.sessionId,
-    message: 'I do not know yet about payment gateways, skip that.'
+  // Step 4: Answer 3 -> Final Synthesis (NO Question 4)
+  console.log('\n-> Sending Answer 3 (Final Answer)...');
+  const finalRes = await groqDiscoveryService.processDiscoveryTurn({
+    sessionId: session.sessionId,
+    message: 'We need payment gateway integration with Razorpay/Stripe, live Google Maps driver tracking, and WhatsApp order alerts.'
   });
 
-  assert(Boolean(skipResult.next_question), `Gracefully transitioned to next area: "${skipResult.next_question}"`);
-  assert(Array.isArray(skipResult.missing_information), 'Missing information array preserved');
+  console.log('\n--- Final Requirements Result ---');
+  console.log(`Project Summary: ${finalRes.project_summary}`);
+  console.log(`Target Users: ${JSON.stringify(finalRes.target_users)}`);
+  console.log(`Core Requirements: ${JSON.stringify(finalRes.core_requirements)}`);
+  console.log(`Integrations: ${JSON.stringify(finalRes.integrations)}`);
+  console.log(`AI Recommendations: ${JSON.stringify(finalRes.ai_recommendations)}`);
 
-  // --- [6] Scenario 5: Multilingual (Gujarati Input) ---
-  console.log('\n--- [6] Scenario 5: Multilingual Understanding (Gujarati) ---');
-  const guSession = groqDiscoveryService.getOrCreateSession();
-  const guResult = await groqDiscoveryService.processDiscoveryTurn({
-    sessionId: guSession.sessionId,
-    message: 'મારે એક કસ્ટમર સપોર્ટ સિસ્ટમ બનાવવી છે જેમાં એઆઈ ચેટબોટ હોય અને ટિકિટ ઓટોમેટિક અસાઇન થાય.'
-  });
+  assert(finalRes.conversation_complete === true, 'conversation_complete is TRUE after Answer 3');
+  assert(!finalRes.question, 'NO Question 4 is generated');
+  assert(Array.isArray(finalRes.questions_and_answers) && finalRes.questions_and_answers.length === 3, 'Preserved all 3 Q&A pairs in final output');
+  assert(finalRes.questions_and_answers[0].answer.includes('retail customers'), 'Saved Answer 1 correctly');
+  assert(finalRes.questions_and_answers[1].answer.includes('30-minute delivery'), 'Saved Answer 2 correctly');
+  assert(finalRes.questions_and_answers[2].answer.includes('Razorpay'), 'Saved Answer 3 correctly');
+  assert(Boolean(finalRes.project_summary), 'Generated coherent final project summary');
+  assert(Array.isArray(finalRes.ai_recommendations) && finalRes.ai_recommendations.length > 0, 'Separated AI recommendations');
 
-  console.log(`    Gujarati Input Detected Intent: ${guResult.detected_intent}`);
-  console.log(`    Counter-Question: "${guResult.next_question}"`);
-  assert(Boolean(guResult.next_question), 'Understood Gujarati input and formulated relevant counter-question');
-
-  // --- [7] Scenario 6: User asks AI a question ---
-  console.log('\n--- [7] Scenario 6: User asks AI a question instead of answering ---');
-  const qResult = await groqDiscoveryService.processDiscoveryTurn({
-    sessionId: grocerySession.sessionId,
-    message: 'What cloud database do you recommend for real-time inventory updates?'
-  });
-
-  assert(Boolean(qResult.next_question), `Handled user inquiry and steered back to discovery: "${qResult.next_question}"`);
-
-  // --- [8] Reset Session ---
-  console.log('\n--- [8] Session Reset ---');
-  const resetSession = groqDiscoveryService.resetSession(grocerySession.sessionId);
-  assert(resetSession.conversationHistory.length === 0, 'Reset session cleared conversation history');
+  // --- [TEST 6] Backend Session State Inspection ---
+  console.log('\n--- [TEST 6] Backend Session State Persistence ---');
+  const storedSession = groqDiscoveryService.getSession(session.sessionId);
+  assert(storedSession && storedSession.currentQuestionNumber === 3, 'Backend session state persists currentQuestionNumber = 3');
+  assert(storedSession.conversationComplete === true, 'Backend session marks conversationComplete = true');
+  assert(storedSession.questions.length === 3, 'Backend session stores all 3 answered questions');
 
   console.log('\n======================================================');
-  console.log(`  GROQ DISCOVERY SUMMARY: ${passed} PASSED, ${failed} FAILED`);
+  console.log(`  EXACT 3-QUESTION DISCOVERY SUMMARY: ${passed} PASSED, ${failed} FAILED`);
   console.log('======================================================\n');
 
   if (failed > 0) {
@@ -130,7 +118,7 @@ async function runGroqDiscoveryTests() {
   }
 }
 
-runGroqDiscoveryTests().catch((err) => {
-  console.error('Fatal Groq Discovery test error:', err);
+runExact3QuestionTests().catch((err) => {
+  console.error('Fatal 3-question test error:', err);
   process.exit(1);
 });
