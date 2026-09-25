@@ -30,6 +30,7 @@ import versionRoutes from './routes/version.routes.js';
 import exportRoutes from './routes/export.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import voiceRoutes from './routes/voice.routes.js';
+import aiDiscoveryRoutes from './routes/aiDiscovery.routes.js';
 import { WebSocketServer } from 'ws';
 import { voiceStreamService } from './services/voice/voiceStream.service.js';
 import { aiService } from './ai/aiService.js';
@@ -210,6 +211,7 @@ app.use('/api/workspaces', versionRoutes);
 app.use('/api/workspaces', exportRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/voice', voiceRoutes);
+app.use('/api/ai/discovery', aiDiscoveryRoutes);
 
 // Centralized error handling
 app.use((err, req, res, next) => {

@@ -360,6 +360,18 @@ export const api = {
     request(`/workspaces/${workspaceId}/chats/transcribe-audio`, { method: 'POST', body: JSON.stringify(payload) }),
   synthesizeTts: (workspaceId, payload) =>
     request(`/workspaces/${workspaceId}/chats/tts`, { method: 'POST', body: JSON.stringify(payload) }),
+  // Groq AI Requirement Discovery Test API
+  startAiDiscovery: (initialMessage = '') =>
+    request('/ai/discovery/start', { method: 'POST', body: JSON.stringify({ initialMessage }) }),
+  sendAiDiscoveryMessage: (sessionId, message) =>
+    request('/ai/discovery/message', { method: 'POST', body: JSON.stringify({ sessionId, message }) }),
+  getAiDiscoverySession: (sessionId) =>
+    request(`/ai/discovery/${sessionId}`),
+  resetAiDiscoverySession: (sessionId) =>
+    request('/ai/discovery/reset', { method: 'POST', body: JSON.stringify({ sessionId }) }),
+  getAiDiscoveryHealth: () =>
+    request('/ai/discovery/health'),
+
   // Outbound Phone Call API (RootForge backend secure voice bridge)
   initiateVoiceCall: (payload) =>
     request('/voice/call', { method: 'POST', body: JSON.stringify(payload) }),

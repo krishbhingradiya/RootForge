@@ -34,6 +34,7 @@ const CollaborationPage = lazy(() => import('./pages/collaboration/Collaboration
 const ExportCenterPage = lazy(() => import('./pages/exports/ExportCenterPage').then(m => ({ default: m.ExportCenterPage })));
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const GroqDiscoveryTestPage = lazy(() => import('./pages/discovery/GroqDiscoveryTestPage').then(m => ({ default: m.GroqDiscoveryTestPage })));
 
 // Lightweight module loading fallback
 const PageFallback = () => (
@@ -126,6 +127,7 @@ export default function App() {
                       <Route path="workspaces/:id/collaboration" element={<Suspense fallback={<PageFallback />}><CollaborationPage /></Suspense>} />
                       <Route path="workspaces/:id/exports" element={<Suspense fallback={<PageFallback />}><ExportCenterPage /></Suspense>} />
                       <Route path="settings" element={<Suspense fallback={<PageFallback />}><SettingsPage /></Suspense>} />
+                      <Route path="ai-discovery-test" element={<Suspense fallback={<PageFallback />}><GroqDiscoveryTestPage /></Suspense>} />
                     </Route>
 
                     {/* Dedicated Admin Route */}
