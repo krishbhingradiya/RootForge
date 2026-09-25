@@ -5,13 +5,13 @@
  * 1. Strict server-side credential isolation (never exposed to client).
  * 2. Twilio Trial & Paid account compatibility (zero disallowed parameters).
  * 3. PostgreSQL primary persistence via Prisma VoiceSession model with in-memory fallback.
- * 4. PII-safe masked logging: [TwilioVoiceService], [VoiceSession].
- * 5. Structured error classification for unverified numbers, geo-restrictions, auth failures.
+ * 4. PII-safe masked logging with [VoiceCall], [TwilioVoiceService], [VoiceSession].
+ * 5. Precise error classification (never converts generic errors into unverified number errors).
  */
 
 import twilio from 'twilio';
 import { prisma } from '../../prisma.js';
-import { validatePhoneNumber, maskPhoneNumber } from '../../utils/phoneValidator.js';
+import { validatePhoneNumber, normalizePhoneNumber, maskPhoneNumber } from '../../utils/phoneValidator.js';
 
 // Development & Transient In-Memory Cache
 const inMemoryVoiceSessions = new Map();
@@ -87,7 +87,6 @@ export class TwilioVoiceService {
     // 1. Primary PostgreSQL persistence via Prisma
     try {
       if (prisma?.voiceSession) {
-        // Verify user exists if userId provided to prevent foreign key violations
         let validUserId = null;
         if (userId) {
           try {
@@ -111,7 +110,7 @@ export class TwilioVoiceService {
         return dbRecord;
       }
     } catch (err) {
-      console.warn(`[VoiceSession] Primary DB insert failed (${err.message}). Using fallback memory session.`);
+      console.warn(`[VoiceSession] Primary DB insert fallback (${err.message}). Using in-memory session.`);
     }
 
     // 2. Fallback memory caching
@@ -194,7 +193,7 @@ export class TwilioVoiceService {
           data: updatePayload
         });
 
-        console.log(`[VoiceSession] Updated in PostgreSQL: ${session.id} -> status: ${updates.status || session.status}`);
+        console.log(`[VoiceSession] Session updated in PostgreSQL: ${session.id} -> status: ${updates.status || session.status}`);
         inMemoryVoiceSessions.set(session.id, dbRecord);
         return dbRecord;
       }
@@ -207,11 +206,16 @@ export class TwilioVoiceService {
 
   /**
    * Initiates an outbound AI phone call to the user's mobile phone via Twilio REST API.
-   * STRICTLY compatible with Twilio Trial and Full Production accounts.
+   * EXACTLY matches Twilio Console "Try Out Voice" behavior.
    */
-  async createOutboundCall({ phoneNumber, userId = null, workspaceId = null }) {
-    const phoneValidation = validatePhoneNumber(phoneNumber);
+  async createOutboundCall({ phoneNumber, countryCode = '+91', userId = null, workspaceId = null }) {
+    console.log('[VoiceCall] Validating phone number input...');
+    console.log(`[VoiceCall] Raw country code: ${countryCode}`);
+    console.log(`[VoiceCall] Raw phone: ${maskPhoneNumber(phoneNumber)}`);
+
+    const phoneValidation = validatePhoneNumber(phoneNumber, countryCode);
     if (!phoneValidation.isValid) {
+      console.warn(`[VoiceCall] E164 validation failed: ${phoneValidation.error}`);
       const err = new Error(phoneValidation.error);
       err.statusCode = 400;
       err.code = 'INVALID_PHONE_NUMBER';
@@ -219,6 +223,8 @@ export class TwilioVoiceService {
     }
 
     const destinationPhone = phoneValidation.normalized;
+    console.log(`[VoiceCall] Normalized phone: ${destinationPhone}`);
+    console.log('[VoiceCall] E164 validation: passed');
 
     // Create session record in DB
     const session = await this.createSession({
@@ -252,19 +258,30 @@ export class TwilioVoiceService {
         startedAt: new Date()
       });
 
-      const callParams = {
+      console.log('[VoiceCall] Calling Twilio...');
+      console.log(`[TwilioVoiceService] Dispatching Twilio Call. From: ${maskPhoneNumber(this.fromNumber)} To: ${maskPhoneNumber(destinationPhone)} Webhook: ${webhookUrl}`);
+
+      /**
+       * TWILIO CONSOLE EQUIVALENT PAYLOAD:
+       * Only passes standard parameters accepted by Twilio REST API:
+       * - to: E.164 destination number
+       * - from: Twilio registered number
+       * - url: Webhook URL returning TwiML
+       * - method: POST
+       * - statusCallback: Status callback URL
+       * - statusCallbackMethod: POST
+       */
+      const call = await this.client.calls.create({
         to: destinationPhone,
         from: this.fromNumber,
         url: webhookUrl,
         method: 'POST',
         statusCallback: statusCallbackUrl,
         statusCallbackMethod: 'POST'
-      };
+      });
 
-      console.log(`[TwilioVoiceService] Dispatching Twilio Call. From: ${maskPhoneNumber(this.fromNumber)} To: ${maskPhoneNumber(destinationPhone)} Webhook: ${webhookUrl}`);
-
-      const call = await this.client.calls.create(callParams);
-
+      console.log(`[VoiceCall] Twilio Call SID: ${call.sid}`);
+      console.log(`[VoiceCall] Twilio status: ${call.status}`);
       console.log(`[TwilioVoiceService] Twilio Call SID: ${call.sid} (Status: ${call.status})`);
 
       const updatedSession = await this.updateSession(session.id, {
@@ -284,42 +301,44 @@ export class TwilioVoiceService {
     } catch (err) {
       console.error('[TwilioVoiceService] Twilio call creation failed:', err.message, 'Code:', err.code, 'Status:', err.status);
 
-      let userFriendlyMessage = 'Unable to start the voice call. Please try again.';
-      let statusCode = 500;
-      let errorCode = err.code || 'TWILIO_API_ERROR';
+      let userFriendlyMessage = err.message || 'Unable to start the voice call. Please try again.';
+      let statusCode = err.status || 500;
+      let errorCode = err.code ? `TWILIO_${err.code}` : 'TWILIO_API_ERROR';
 
-      // 1. Twilio Trial unverified destination restriction (Code 21608, 21215)
-      if (
-        err.code === 21608 ||
-        err.code === 21215 ||
-        err.message?.toLowerCase().includes('unverified') ||
-        err.message?.toLowerCase().includes('trial')
-      ) {
-        userFriendlyMessage = 'This Twilio Trial account can only call verified phone numbers. Verify this number in Twilio Console or upgrade the Twilio account.';
+      // 1. Twilio Trial UNVERIFIED recipient ONLY (Twilio Code 21608)
+      // Do NOT map other errors to unverified. ONLY Code 21608 represents this specific restriction.
+      if (err.code === 21608) {
+        userFriendlyMessage = `This phone number (${maskPhoneNumber(destinationPhone)}) is not verified in your Twilio Trial account. Please verify it in Twilio Console (Verified Caller IDs) or upgrade your Twilio account.`;
         statusCode = 400;
-        errorCode = 'TRIAL_UNVERIFIED_NUMBER';
+        errorCode = 'TWILIO_TRIAL_RECIPIENT_NOT_VERIFIED';
       }
-      // 2. Invalid phone number format (Code 21211)
-      else if (err.code === 21211 || err.message?.toLowerCase().includes('valid phone number')) {
-        userFriendlyMessage = 'The provided phone number is not a valid mobile number format.';
+      // 2. Invalid 'To' destination phone number (Code 21211)
+      else if (err.code === 21211) {
+        userFriendlyMessage = 'The provided phone number is not a valid mobile number.';
         statusCode = 400;
         errorCode = 'INVALID_PHONE_NUMBER';
       }
-      // 3. Twilio authentication failure (Code 20003 or HTTP 401)
+      // 3. Invalid or unauthorized 'From' phone number (Code 21212, 21606)
+      else if (err.code === 21212 || err.code === 21606) {
+        userFriendlyMessage = 'The configured Twilio phone number is invalid or not authorized for outbound calls.';
+        statusCode = 500;
+        errorCode = 'INVALID_FROM_PHONE';
+      }
+      // 4. Geo-Permissions restricted (Code 21408)
+      else if (err.code === 21408) {
+        userFriendlyMessage = 'Calls to this destination country are restricted by Twilio Geo Permissions. Please enable voice permissions for this country in Twilio Console.';
+        statusCode = 403;
+        errorCode = 'GEO_PERMISSIONS_RESTRICTED';
+      }
+      // 5. Authentication failure (Code 20003 or HTTP 401)
       else if (err.code === 20003 || err.status === 401) {
         userFriendlyMessage = 'Authentication with Twilio failed. Please check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in the backend environment.';
         statusCode = 502;
         errorCode = 'TWILIO_AUTH_FAILED';
       }
-      // 4. Geo Permission restriction (Code 21408)
-      else if (err.code === 21408 || err.message?.toLowerCase().includes('geo permission')) {
-        userFriendlyMessage = 'Calls to this destination country are restricted by Twilio Geo Permissions. Please enable voice permissions in Twilio Console.';
-        statusCode = 403;
-        errorCode = 'GEO_PERMISSIONS_RESTRICTED';
-      }
-      // 5. Insufficient funds / Trial balance exhausted (Code 20001, 20005)
-      else if (err.code === 20001 || err.code === 20005 || err.message?.toLowerCase().includes('balance')) {
-        userFriendlyMessage = 'Twilio account has insufficient balance or trial credits. Please check your Twilio console.';
+      // 6. Insufficient funds / Trial balance exhausted (Code 20001, 20005)
+      else if (err.code === 20001 || err.code === 20005) {
+        userFriendlyMessage = 'Your Twilio account has insufficient balance or trial credits. Please check your Twilio console.';
         statusCode = 402;
         errorCode = 'TWILIO_INSUFFICIENT_FUNDS';
       }

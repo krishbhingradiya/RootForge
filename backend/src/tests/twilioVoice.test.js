@@ -37,6 +37,12 @@ async function runVoiceTests() {
   const indianNumber = normalizePhoneNumber('9876543210', '+91');
   assert(indianNumber === '+919876543210', 'Normalizes 10-digit Indian number to +91 E.164 format');
 
+  const userNumberTest = normalizePhoneNumber('8200818728', '+91');
+  assert(userNumberTest === '+918200818728', 'Normalizes user test number 8200818728 with +91 to +918200818728');
+
+  const userNumberValid = validatePhoneNumber('8200818728', '+91');
+  assert(userNumberValid.isValid && userNumberValid.normalized === '+918200818728', 'Validates 8200818728 correctly as E.164');
+
   const usNumber = normalizePhoneNumber('2025550143', '+1');
   assert(usNumber === '+12025550143', 'Normalizes US number with +1 country code');
 

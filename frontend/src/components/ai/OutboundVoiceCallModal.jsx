@@ -123,13 +123,16 @@ export const OutboundVoiceCallModal = ({
     try {
       const res = await api.initiateVoiceCall({
         phoneNumber: fullPhoneNumber,
+        countryCode: selectedCountryCode,
+        nationalNumber: trimmedNumber,
         workspaceId
       });
 
       if (res && res.success) {
         setActiveSessionId(res.sessionId);
         setCallState('calling');
-        setStatusMessage('Calling your phone... Please answer when it rings.');
+        const masked = res.phoneNumberMasked || fullPhoneNumber;
+        setStatusMessage(`Calling ${masked}... Please answer when it rings.`);
       } else {
         setCallState('error');
         setErrorMessage(res?.message || res?.error || 'Unable to start the AI voice call.');

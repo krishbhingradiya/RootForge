@@ -119,7 +119,7 @@ const rateLimitVoiceCalls = (req, res, next) => {
  */
 router.post('/call', optionalAuth, rateLimitVoiceCalls, async (req, res) => {
   try {
-    const { phoneNumber, workspaceId = null } = req.body;
+    const { phoneNumber, countryCode = '+91', workspaceId = null } = req.body;
 
     if (!phoneNumber) {
       return res.status(400).json({
@@ -133,6 +133,7 @@ router.post('/call', optionalAuth, rateLimitVoiceCalls, async (req, res) => {
 
     const result = await twilioVoiceService.createOutboundCall({
       phoneNumber,
+      countryCode,
       userId,
       workspaceId
     });
