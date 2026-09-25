@@ -207,6 +207,21 @@ router.post('/session/:id/cancel', optionalAuth, async (req, res) => {
 });
 
 /**
+ * GET /api/voice/health
+ * Health check & diagnostic status for Voice AI subsystem
+ */
+router.get(['/health', '/'], (req, res) => {
+  const config = twilioVoiceService.getConfigStatus();
+  res.json({
+    status: 'ok',
+    service: 'RootForge Outbound AI Voice Service',
+    timestamp: new Date().toISOString(),
+    voiceAgentEnabled: process.env.VOICE_AGENT_ENABLED !== 'false',
+    twilio: config
+  });
+});
+
+/**
  * GET /api/voice/config
  * Non-sensitive configuration check for frontend UI
  */
