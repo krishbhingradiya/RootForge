@@ -116,6 +116,20 @@ async function runVoiceTests() {
     });
     assert(speechResponse.includes('<Gather') && speechResponse.includes('<Say'), 'Speech response returns follow-up question inside <Gather>');
 
+    // Test Multilingual Speech Normalization & Counter-Question Formulation
+    const gujaratiSessionId = `vses_gu_${Date.now()}`;
+    await voiceWebhookService.generateIncomingTwiML({
+      callSid: 'CA_gu_123',
+      sessionId: gujaratiSessionId
+    });
+
+    const gujaratiSpeechResponse = await voiceWebhookService.processSpeech({
+      callSid: 'CA_gu_123',
+      speechResult: 'મારે એક કસ્ટમર સપોર્ટ સિસ્ટમ બનાવવી છે જેમાં એઆઈ ચેટબોટ હોય',
+      sessionId: gujaratiSessionId
+    });
+    assert(gujaratiSpeechResponse.includes('<Gather') && gujaratiSpeechResponse.includes('<Say'), 'Gujarati user speech processes successfully and returns localized follow-up in <Gather>');
+
     // Test Goodbye Speech
     const goodbyeResponse = await voiceWebhookService.processSpeech({
       callSid: 'CA_twiml_test_123',
@@ -158,3 +172,4 @@ runVoiceTests().catch((err) => {
   console.error('Fatal test error:', err);
   process.exit(1);
 });
+

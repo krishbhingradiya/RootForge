@@ -1,18 +1,9 @@
-/**
- * Enterprise Conversational Voice Webhook & TwiML Generator
- * 
- * Flow:
- * 1. User answers -> Returns <Gather input="speech"> with AI greeting.
- * 2. User speaks -> POST /api/voice/process-speech receives SpeechResult.
- * 3. AI Consultant analyzes speech -> Returns next follow-up question inside <Gather>.
- * 4. Call stays connected until user says goodbye or hangs up.
- */
-
 import twilio from 'twilio';
 import { twilioVoiceService } from './twilioVoice.service.js';
+import { aiVoiceConsultantService } from './aiVoiceConsultant.service.js';
 
-// In-Memory conversation turns cache: sessionIdOrCallSid -> Array of { role, text, timestamp }
-const sessionConversations = new Map();
+// In-Memory conversation state cache: sessionKey -> { conversation: [], requirements: {}, lastDetectedLanguage: 'en-IN', generatedDoc: null }
+const sessionStates = new Map();
 
 export class VoiceWebhookService {
   constructor() {
@@ -31,8 +22,23 @@ export class VoiceWebhookService {
   }
 
   /**
+   * Helper to get or initialize session state
+   */
+  getSessionState(sessionKey) {
+    if (!sessionStates.has(sessionKey)) {
+      sessionStates.set(sessionKey, {
+        conversation: [],
+        requirements: {},
+        lastDetectedLanguage: 'en-IN',
+        generatedDoc: null
+      });
+    }
+    return sessionStates.get(sessionKey);
+  }
+
+  /**
    * Reusable helper to generate Conversational TwiML that waits for user speech.
-   * NEVER hangs up after speaking.
+   * NEVER hangs up after speaking unless explicitly completed.
    */
   buildListeningTwiML(message, options = {}) {
     const baseUrl = this.getBaseUrl();
@@ -40,6 +46,8 @@ export class VoiceWebhookService {
     const redirectUrl = options.redirectUrl || `${baseUrl}/api/voice/incoming`;
     const timeout = options.timeout || 8;
     const speechTimeout = options.speechTimeout || 'auto';
+    const language = options.language || 'en-IN';
+    const voice = options.voice || 'Polly.Aditi';
 
     const VoiceResponse = twilio.twiml.VoiceResponse;
     const response = new VoiceResponse();
@@ -49,24 +57,31 @@ export class VoiceWebhookService {
       action: actionUrl,
       method: 'POST',
       speechTimeout: speechTimeout,
-      timeout: timeout
+      timeout: timeout,
+      language: language
     });
 
     gather.say(
       {
-        voice: 'Polly.Aditi',
-        language: 'en-IN'
+        voice: voice,
+        language: language
       },
       message
     );
 
     // Fallback if user stays silent during Gather timeout
+    const silencePrompt = language.startsWith('gu')
+      ? 'મને તમારો અવાજ સંભળાયો નથી. કૃપા કરીને ફરીથી જણાવો.'
+      : language.startsWith('hi')
+      ? 'मुझे आपकी आवाज सुनाई नहीं दी। कृपया फिर से बताएं।'
+      : "I didn't hear your response. Could you please repeat that?";
+
     response.say(
       {
-        voice: 'Polly.Aditi',
-        language: 'en-IN'
+        voice: voice,
+        language: language
       },
-      "I didn't hear your response. Please tell me about your requirement."
+      silencePrompt
     );
 
     response.redirect(
@@ -83,17 +98,21 @@ export class VoiceWebhookService {
    * Generates the initial conversational greeting with <Gather input="speech">
    */
   async generateIncomingTwiML({ callSid = null, sessionId = null, toPhone = null }) {
-    const initialGreeting = 'Hello! Welcome to RootForge AI Business Consultant. I will help you understand your business requirements. Please tell me about your business idea or the main problem you want to solve.';
+    console.log('[VoiceAgent] Call started');
+    const initialGreeting = 'Hello! Welcome to RootForge AI Business Consultant. I am here to understand your project requirements and design your system. Please tell me about your business idea or the main problem you want to solve.';
 
-    // Initialize conversation history
     const sessionKey = sessionId || callSid || toPhone || 'default';
-    sessionConversations.set(sessionKey, [
+    const state = this.getSessionState(sessionKey);
+
+    state.conversation = [
       {
         role: 'assistant',
         text: initialGreeting,
+        englishText: initialGreeting,
+        language: 'en-IN',
         timestamp: new Date().toISOString()
       }
-    ]);
+    ];
 
     // Update DB status asynchronously
     (async () => {
@@ -115,186 +134,239 @@ export class VoiceWebhookService {
       }
     })();
 
-    return this.buildListeningTwiML(initialGreeting);
-  }
-
-  /**
-   * Generates a conversational AI response using Groq, Gemini, or Contextual Consultant
-   */
-  async generateAiConsultantReply(userTranscript, history = []) {
-    const groqKey = process.env.GROQ_API_KEY;
-    const geminiKey = process.env.AI_API_KEY;
-
-    const systemPrompt = `You are RootForge AI Business Consultant speaking on a live phone call with a client.
-Your goal is to gather software and business requirements to build their technical architecture.
-RULES FOR VOICE:
-1. Speak in natural, polite English.
-2. Keep responses EXTREMELY CONCISE (1 to 2 short sentences maximum).
-3. Acknowledge what they said, then ask one focused follow-up question (e.g. about users, key features, mobile vs web, database, or scale).
-4. NEVER use markdown, bullet points, asterisks, or formatting. Only plain speakable text.`;
-
-    // 1. Try Groq (Ultra-fast LLM response)
-    if (groqKey) {
-      try {
-        const messages = [
-          { role: 'system', content: systemPrompt },
-          ...history.slice(-4).map(h => ({ role: h.role, content: h.text })),
-          { role: 'user', content: userTranscript }
-        ];
-
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${groqKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages,
-            temperature: 0.4,
-            max_tokens: 120
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const reply = data.choices?.[0]?.message?.content?.trim();
-          if (reply) return reply.replace(/[\*\#\_]/g, '');
-        }
-      } catch (err) {
-        console.warn('[VoiceWebhook] Groq request fallback:', err.message);
-      }
-    }
-
-    // 2. Try Google Gemini
-    if (geminiKey) {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': geminiKey
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: systemPrompt }]
-            },
-            contents: [
-              ...history.slice(-4).map(h => ({
-                role: h.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: h.text }]
-              })),
-              {
-                role: 'user',
-                parts: [{ text: userTranscript }]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.4,
-              maxOutputTokens: 120
-            }
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (reply) return reply.replace(/[\*\#\_]/g, '');
-        }
-      } catch (err) {
-        console.warn('[VoiceWebhook] Gemini request fallback:', err.message);
-      }
-    }
-
-    // 3. Fallback Dynamic Consultant
-    const lower = userTranscript.toLowerCase();
-    if (lower.includes('grocery') || lower.includes('delivery') || lower.includes('food') || lower.includes('ecommerce') || lower.includes('shop')) {
-      return "That sounds like an impactful platform. Who are your primary target users, and do you need a customer mobile app or a vendor web dashboard first?";
-    } else if (lower.includes('app') || lower.includes('mobile') || lower.includes('website') || lower.includes('platform')) {
-      return "Understood. What are the top two or three core features your users will need on day one?";
-    } else if (lower.includes('ai') || lower.includes('bot') || lower.includes('automate')) {
-      return "Excellent. What existing tools or data sources will this AI system need to integrate with?";
-    }
-
-    return `I heard your idea about ${userTranscript.slice(0, 40)}. What is the most critical workflow you want RootForge to design first?`;
+    return this.buildListeningTwiML(initialGreeting, { language: 'en-IN', voice: 'Polly.Aditi' });
   }
 
   /**
    * Handles user speech received from Twilio <Gather>
    */
   async processSpeech({ callSid, speechResult, confidence = 1, from = null, to = null, sessionId = null }) {
-    console.log('[TwilioVoiceService] Speech received');
-    console.log(`[TwilioVoiceService] CallSid: ${callSid || 'UNKNOWN'}`);
-    console.log(`[TwilioVoiceService] Transcript: ${speechResult || '(silence)'}`);
+    console.log('[VoiceAgent] Speech detected');
+    console.log(`[VoiceAgent] Twilio stream CallSid: ${callSid || 'UNKNOWN'}`);
 
-    const VoiceResponse = twilio.twiml.VoiceResponse;
+    const sessionKey = sessionId || callSid || from || 'default';
+    const state = this.getSessionState(sessionKey);
+
+    // Retrieve active session record from DB/memory
+    let session = null;
+    try {
+      if (sessionId) session = await twilioVoiceService.getSession(sessionId);
+      if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
+      if (!session && from) session = await twilioVoiceService.getSession(from);
+    } catch {}
 
     // Handle silence / no speech detected
     if (!speechResult || !speechResult.trim()) {
-      return this.buildListeningTwiML("I didn't hear your response. Please tell me about your business requirement.");
+      console.log('[VoiceAgent] Silence detected. Prompting user to repeat.');
+      const silenceMsg = state.lastDetectedLanguage.startsWith('gu')
+        ? 'મને તમારો અવાજ સંભળાયો નથી. કૃપા કરીને તમારી જરૂરિયાત જણાવો.'
+        : state.lastDetectedLanguage.startsWith('hi')
+        ? 'मुझे आपकी आवाज सुनाई नहीं दी। कृपया अपनी आवश्यकता बताएं।'
+        : "Sorry, I didn't hear you clearly. Could you please repeat that?";
+
+      return this.buildListeningTwiML(silenceMsg, {
+        language: state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN',
+        voice: 'Polly.Aditi'
+      });
     }
 
     const trimmedSpeech = speechResult.trim();
-    const lowerSpeech = trimmedSpeech.toLowerCase();
+    console.log(`[VoiceAgent] Final transcript received: "${trimmedSpeech}"`);
 
-    // Check for conversational exit / goodbye
-    const isGoodbye = /\b(bye|goodbye|exit|end call|stop call|hang up|that's all|that is all|thank you bye)\b/i.test(lowerSpeech);
+    // 1. Language Detection & English Normalization
+    const normalized = await aiVoiceConsultantService.normalizeUserSpeech({
+      transcript: trimmedSpeech,
+      hintLanguage: state.lastDetectedLanguage
+    });
+
+    state.lastDetectedLanguage = normalized.detectedLanguage || 'en-IN';
+    console.log(`[VoiceAgent] Language detected: ${state.lastDetectedLanguage}`);
+    console.log(`[VoiceAgent] English normalization completed: "${normalized.englishTranscript}"`);
+
+    // Append user turn to conversation history
+    state.conversation.push({
+      role: 'user',
+      text: normalized.originalTranscript,
+      englishText: normalized.englishTranscript,
+      language: state.lastDetectedLanguage,
+      confidence: confidence,
+      timestamp: new Date().toISOString()
+    });
+
+    // Check for explicit goodbye / call end request
+    const lowerEnglish = normalized.englishTranscript.toLowerCase();
+    const isGoodbye = /\b(bye|goodbye|exit|end call|stop call|hang up|that's all|that is all|thank you bye|finish call)\b/i.test(lowerEnglish);
 
     if (isGoodbye) {
-      console.log('[TwilioVoiceWebhook] User requested call completion. Ending session gracefully.');
+      console.log('[VoiceAgent] User requested call completion. Wrapping up requirements.');
+      console.log('[VoiceAgent] Conversation completed');
+
+      // Generate complete 28-section requirements document
+      let docResult = null;
+      try {
+        docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+          session,
+          conversation: state.conversation,
+          requirements: state.requirements
+        });
+        state.generatedDoc = docResult;
+      } catch (err) {
+        console.warn('[VoiceAgent] Final markdown generation error:', err.message);
+      }
+
+      // Final farewell in user's language
+      let farewellText = 'Thank you for discussing your project with RootForge AI. Your complete project requirements document has been generated and saved to your workspace. Goodbye!';
+      if (state.lastDetectedLanguage.startsWith('gu')) {
+        farewellText = 'રૂટફોર્જ એઆઈ સાથે વાત કરવા બદલ આભાર. તમારી સંપૂર્ણ રિક્વાયરમેન્ટ ફાઇલ સેવ થઈ ગઈ છે. આવજો!';
+      } else if (state.lastDetectedLanguage.startsWith('hi')) {
+        farewellText = 'रूटफोर्ज एआई से बात करने के लिए धन्यवाद। आपकी पूरी आवश्यकताएं सेव कर ली गई हैं। धन्यवाद और अलविदा!';
+      }
+
+      const VoiceResponse = twilio.twiml.VoiceResponse;
       const response = new VoiceResponse();
       response.say(
         {
           voice: 'Polly.Aditi',
-          language: 'en-IN'
+          language: state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN'
         },
-        'Thank you for speaking with RootForge AI Business Consultant. Your conversation has been saved. Goodbye!'
+        farewellText
       );
       response.hangup();
 
-      // Mark session as completed
-      (async () => {
-        try {
-          const session = await twilioVoiceService.getSession(sessionId || callSid || from);
-          if (session) {
+      // Mark session as completed in DB
+      if (session) {
+        (async () => {
+          try {
             await twilioVoiceService.updateSession(session.id, {
               status: 'completed',
               endedAt: new Date()
             });
-          }
-        } catch {}
-      })();
+          } catch {}
+        })();
+      }
 
       return response.toString();
     }
 
-    // Retrieve conversation history
-    const sessionKey = sessionId || callSid || from || 'default';
-    const history = sessionConversations.get(sessionKey) || [];
+    // 2. Groq AI Business Consultant Reasoner
+    console.log('[VoiceAgent] Groq request started');
+    let consultResult = null;
+    try {
+      consultResult = await aiVoiceConsultantService.consultAndFormulateQuestion({
+        conversationHistory: state.conversation,
+        currentTurnRequirements: state.requirements
+      });
+    } catch (err) {
+      console.warn('[VoiceAgent] Consultant reasoning error:', err.message);
+      consultResult = {
+        conversation_complete: false,
+        detected_language: state.lastDetectedLanguage,
+        next_question: 'Could you share more details about your core users and primary features?',
+        requirements: state.requirements,
+        missing_information: []
+      };
+    }
 
-    // Append user message to history
-    history.push({
-      role: 'user',
-      text: trimmedSpeech,
-      timestamp: new Date().toISOString()
-    });
+    // Update accumulated requirements in state
+    if (consultResult.requirements) {
+      state.requirements = {
+        ...state.requirements,
+        ...consultResult.requirements
+      };
+    }
 
-    // Generate next response
-    const replyText = await this.generateAiConsultantReply(trimmedSpeech, history);
+    // 3. Check if Groq evaluated conversation as complete
+    if (consultResult.conversation_complete === true) {
+      console.log('[VoiceAgent] Groq determined discovery is complete. Generating final specifications.');
+      console.log('[VoiceAgent] Conversation completed');
 
-    // Append assistant response to history
-    history.push({
+      let docResult = null;
+      try {
+        docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+          session,
+          conversation: state.conversation,
+          requirements: state.requirements
+        });
+        state.generatedDoc = docResult;
+      } catch (err) {
+        console.warn('[VoiceAgent] Markdown generation notice:', err.message);
+      }
+
+      let completionMessage = 'I have gathered sufficient requirements to generate your architecture and solution specifications. Your requirements document is now ready in RootForge. Thank you and goodbye!';
+      if (state.lastDetectedLanguage.startsWith('gu')) {
+        completionMessage = 'મેં તમારી બધી મુખ્ય જરૂરિયાતો નોંધી લીધી છે અને તમારું રિક્વાયરમેન્ટ ડોક્યુમેન્ટ તૈયાર થઈ ગયું છે. રૂટફોર્જ વાપરવા બદલ આભાર, આવજો!';
+      } else if (state.lastDetectedLanguage.startsWith('hi')) {
+        completionMessage = 'मैंने आपकी सभी मुख्य आवश्यकताएं समझ ली हैं और आपका दस्तावेज़ तैयार हो गया है। रूटफोर्ज का उपयोग करने के लिए धन्यवाद, अलविदा!';
+      }
+
+      const VoiceResponse = twilio.twiml.VoiceResponse;
+      const response = new VoiceResponse();
+      response.say(
+        {
+          voice: 'Polly.Aditi',
+          language: state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN'
+        },
+        completionMessage
+      );
+      response.hangup();
+
+      if (session) {
+        (async () => {
+          try {
+            await twilioVoiceService.updateSession(session.id, {
+              status: 'completed',
+              endedAt: new Date()
+            });
+          } catch {}
+        })();
+      }
+
+      return response.toString();
+    }
+
+    // 4. Localize Next Question into User's Language
+    const englishQuestion = consultResult.next_question || 'What is the most critical feature your users need?';
+    let localizedQuestion = englishQuestion;
+
+    if (state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi')) {
+      try {
+        localizedQuestion = await aiVoiceConsultantService.translateText({
+          text: englishQuestion,
+          sourceLang: 'en-IN',
+          targetLang: state.lastDetectedLanguage
+        });
+      } catch (err) {
+        console.warn('[VoiceAgent] Question localization notice:', err.message);
+        localizedQuestion = englishQuestion;
+      }
+    }
+
+    // Append assistant counter-question to history
+    state.conversation.push({
       role: 'assistant',
-      text: replyText,
+      text: localizedQuestion,
+      englishText: englishQuestion,
+      language: state.lastDetectedLanguage,
       timestamp: new Date().toISOString()
     });
-    sessionConversations.set(sessionKey, history);
 
-    console.log(`[TwilioVoiceService] Next AI Response: "${replyText}"`);
+    console.log('[VoiceAgent] TTS started');
+    console.log(`[VoiceAgent] Audio sent to Twilio: "${localizedQuestion}"`);
+    console.log('[VoiceAgent] Conversation turn completed');
 
-    // Return TwiML that speaks response and waits for user's next answer
-    return this.buildListeningTwiML(replyText);
+    const twilioLang = state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN';
+    return this.buildListeningTwiML(localizedQuestion, {
+      language: twilioLang,
+      voice: 'Polly.Aditi'
+    });
+  }
+
+  /**
+   * Retrieves conversation & requirements for a session
+   */
+  getSessionDetails(sessionIdOrCallSid) {
+    if (!sessionIdOrCallSid) return null;
+    return sessionStates.get(sessionIdOrCallSid) || null;
   }
 
   /**
@@ -347,3 +419,4 @@ RULES FOR VOICE:
 }
 
 export const voiceWebhookService = new VoiceWebhookService();
+

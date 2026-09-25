@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Phone, PhoneCall, PhoneOff, PhoneForwarded, X, Loader2, AlertCircle, CheckCircle2, ShieldCheck, Sparkles, Volume2 } from 'lucide-react';
+import { 
+  Phone, PhoneCall, PhoneOff, PhoneForwarded, X, Loader2, AlertCircle, 
+  CheckCircle2, ShieldCheck, Sparkles, Volume2, Download, FileText, 
+  ArrowRight, MessageSquare, ListCheck, Layers
+} from 'lucide-react';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -16,7 +20,8 @@ const COUNTRY_CODES = [
 export const OutboundVoiceCallModal = ({
   isOpen = false,
   onClose = () => {},
-  workspaceId = null
+  workspaceId = null,
+  onDiscoveryComplete = null
 }) => {
   const { t } = useLanguage();
 
@@ -27,6 +32,11 @@ export const OutboundVoiceCallModal = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [callDurationSeconds, setCallDurationSeconds] = useState(0);
+
+  // Completed Discovery Data
+  const [discoveryData, setDiscoveryData] = useState(null);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [loadingRequirements, setLoadingRequirements] = useState(false);
 
   const pollTimerRef = useRef(null);
   const durationTimerRef = useRef(null);
@@ -63,14 +73,15 @@ export const OutboundVoiceCallModal = ({
             const s = res.session.status;
             if (s === 'ringing' || s === 'initiating') {
               setCallState('calling');
-              setStatusMessage('Your phone should ring shortly.');
+              setStatusMessage('Calling your phone... Please answer when it rings.');
             } else if (s === 'connected' || s === 'active') {
               setCallState('active');
-              setStatusMessage('AI Voice Session Active');
+              setStatusMessage('AI Voice Agent connected — Listening & Analyzing...');
             } else if (s === 'completed') {
               setCallState('completed');
-              setStatusMessage('Call Completed');
+              setStatusMessage('Discovery Completed');
               if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+              fetchRequirements(activeSessionId);
             } else if (s === 'failed') {
               setCallState('error');
               setErrorMessage(res.session.errorMessage || 'Unable to connect the voice call. Please try again.');
@@ -90,6 +101,23 @@ export const OutboundVoiceCallModal = ({
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [activeSessionId, callState]);
+
+  const fetchRequirements = async (sessionId) => {
+    setLoadingRequirements(true);
+    try {
+      const data = await api.getVoiceSessionRequirements(sessionId);
+      if (data && data.success) {
+        setDiscoveryData(data);
+        if (typeof onDiscoveryComplete === 'function') {
+          onDiscoveryComplete(data);
+        }
+      }
+    } catch (err) {
+      console.warn('[OutboundVoiceCall] Could not fetch requirements:', err.message);
+    } finally {
+      setLoadingRequirements(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -119,6 +147,8 @@ export const OutboundVoiceCallModal = ({
     setStatusMessage('Starting your AI call...');
     setErrorMessage('');
     setCallDurationSeconds(0);
+    setDiscoveryData(null);
+    setShowTranscript(false);
 
     try {
       const res = await api.initiateVoiceCall({
@@ -160,7 +190,8 @@ export const OutboundVoiceCallModal = ({
       console.warn('Could not cancel call on server:', err.message);
     } finally {
       setCallState('completed');
-      setStatusMessage('Call Ended');
+      setStatusMessage('Discovery Completed');
+      fetchRequirements(activeSessionId);
     }
   };
 
@@ -170,6 +201,19 @@ export const OutboundVoiceCallModal = ({
     setErrorMessage('');
     setActiveSessionId(null);
     setCallDurationSeconds(0);
+    setDiscoveryData(null);
+    setShowTranscript(false);
+  };
+
+  const handleDownloadMarkdown = () => {
+    if (!activeSessionId) return;
+    const downloadUrl = api.getVoiceSessionMarkdownUrl(activeSessionId);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.setAttribute('download', `project-requirements-${activeSessionId}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -177,8 +221,8 @@ export const OutboundVoiceCallModal = ({
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.65)',
-        backdropFilter: 'blur(4px)',
+        backgroundColor: 'rgba(15, 23, 42, 0.75)',
+        backdropFilter: 'blur(6px)',
         zIndex: 9999,
         display: 'flex',
         alignItems: 'center',
@@ -195,13 +239,14 @@ export const OutboundVoiceCallModal = ({
         className="card"
         style={{
           width: '100%',
-          maxWidth: 480,
+          maxWidth: callState === 'completed' && discoveryData ? 620 : 480,
           backgroundColor: 'var(--bg-surface, #1E232D)',
           border: '1px solid var(--border-medium, #2A313C)',
           borderRadius: 16,
-          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.35)',
+          boxShadow: '0 20px 45px rgba(0, 0, 0, 0.45)',
           overflow: 'hidden',
-          padding: 0
+          padding: 0,
+          transition: 'all 0.3s ease'
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -237,7 +282,7 @@ export const OutboundVoiceCallModal = ({
                 AI Voice Business Consultant
               </h2>
               <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #94A3B8)', margin: 0, marginTop: 2 }}>
-                Talk to your AI Business Consultant by phone.
+                Real-time discovery agent powered by Groq & Multilingual Voice.
               </p>
             </div>
           </div>
@@ -254,7 +299,7 @@ export const OutboundVoiceCallModal = ({
         </div>
 
         {/* Content Body */}
-        <div style={{ padding: '22px 24px' }}>
+        <div style={{ padding: '22px 24px', maxHeight: '75vh', overflowY: 'auto' }}>
           {/* Status Badge */}
           <div
             style={{
@@ -270,6 +315,8 @@ export const OutboundVoiceCallModal = ({
                 ? 'rgba(217, 119, 6, 0.12)'
                 : callState === 'error'
                 ? 'rgba(239, 68, 68, 0.12)'
+                : callState === 'completed'
+                ? 'rgba(16, 185, 129, 0.12)'
                 : 'var(--bg-subtle, #181C24)',
               border: `1px solid ${
                 callState === 'active' || callState === 'connected'
@@ -278,6 +325,8 @@ export const OutboundVoiceCallModal = ({
                   ? 'rgba(217, 119, 6, 0.3)'
                   : callState === 'error'
                   ? 'rgba(239, 68, 68, 0.3)'
+                  : callState === 'completed'
+                  ? 'rgba(16, 185, 129, 0.3)'
                   : 'var(--border-subtle, #2A313C)'
               }`
             }}
@@ -298,7 +347,7 @@ export const OutboundVoiceCallModal = ({
                 style={{
                   fontSize: '0.85rem',
                   fontWeight: 600,
-                  color: callState === 'error' ? '#EF4444' : callState === 'active' ? '#10B981' : 'var(--text-primary)'
+                  color: callState === 'error' ? '#EF4444' : (callState === 'active' || callState === 'completed') ? '#10B981' : 'var(--text-primary)'
                 }}
               >
                 {statusMessage}
@@ -343,11 +392,11 @@ export const OutboundVoiceCallModal = ({
               </div>
 
               <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                {callState === 'active' ? 'Voice Session In Progress' : 'Calling Your Mobile Phone'}
+                {callState === 'active' ? 'Voice Consultant Active' : 'Calling Your Mobile Phone'}
               </h4>
               <p style={{ margin: '6px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                 {callState === 'active'
-                  ? 'Speak naturally to discuss architecture, business workflows, and constraints.'
+                  ? 'Speak freely in English, Hindi, or Gujarati. AI is reasoning and asking focused counter-questions.'
                   : 'Please answer your phone when it rings to connect to RootForge AI.'}
               </p>
 
@@ -365,8 +414,169 @@ export const OutboundVoiceCallModal = ({
                 }}
               >
                 <PhoneOff size={16} />
-                <span>End Call</span>
+                <span>Finish / End Call</span>
               </button>
+            </div>
+          ) : callState === 'completed' ? (
+            /* Completed Discovery View */
+            <div>
+              <div
+                style={{
+                  padding: '16px 18px',
+                  borderRadius: 12,
+                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  marginBottom: 16
+                }}
+              >
+                <h4 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CheckCircle2 size={18} />
+                  <span>Requirements Discovered & Saved</span>
+                </h4>
+                <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary, #CBD5E1)', lineHeight: 1.5 }}>
+                  The 28-section <code style={{ color: '#F59E0B' }}>project-requirements.md</code> document has been generated and linked directly to your RootForge Solution Builder pipeline.
+                </p>
+              </div>
+
+              {/* Discovered Highlights Summary */}
+              {discoveryData?.requirements && (
+                <div
+                  style={{
+                    backgroundColor: 'rgba(0,0,0,0.2)',
+                    borderRadius: 10,
+                    padding: '14px 16px',
+                    border: '1px solid var(--border-subtle, #2A313C)',
+                    marginBottom: 16
+                  }}
+                >
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+                    Discovered Overview
+                  </span>
+                  {discoveryData.requirements.business_problem && (
+                    <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
+                      <strong style={{ color: 'var(--accent-amber, #D97706)' }}>Problem: </strong>
+                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.business_problem}</span>
+                    </div>
+                  )}
+                  {Array.isArray(discoveryData.requirements.features) && discoveryData.requirements.features.length > 0 && (
+                    <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
+                      <strong style={{ color: '#10B981' }}>Key Features: </strong>
+                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.features.join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Transcript Drawer Toggle */}
+              {discoveryData?.conversation && discoveryData.conversation.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowTranscript(!showTranscript)}
+                    className="btn btn-ghost"
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '0.82rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      color: 'var(--accent-amber, #D97706)'
+                    }}
+                  >
+                    <MessageSquare size={15} />
+                    <span>{showTranscript ? 'Hide Conversation Transcript' : `View Conversation Transcript (${discoveryData.conversation.length} turns)`}</span>
+                  </button>
+
+                  {showTranscript && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        maxHeight: 220,
+                        overflowY: 'auto',
+                        padding: 12,
+                        borderRadius: 8,
+                        backgroundColor: 'rgba(0,0,0,0.35)',
+                        border: '1px solid var(--border-medium, #2A313C)',
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      {discoveryData.conversation.map((c, idx) => (
+                        <div key={idx} style={{ marginBottom: 10 }}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              backgroundColor: c.role === 'assistant' ? 'rgba(217, 119, 6, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                              color: c.role === 'assistant' ? 'var(--accent-amber)' : '#10B981',
+                              marginRight: 8
+                            }}
+                          >
+                            {c.role}
+                          </span>
+                          <span style={{ color: 'var(--text-primary)' }}>{c.text}</span>
+                          {c.englishText && c.englishText !== c.text && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginLeft: 8, marginTop: 2, fontStyle: 'italic' }}>
+                              Normalized: {c.englishText}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="btn btn-secondary"
+                  style={{ padding: '9px 16px', fontSize: '0.84rem' }}
+                >
+                  Start New Call
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadMarkdown}
+                  className="btn btn-secondary"
+                  style={{
+                    padding: '9px 16px',
+                    fontSize: '0.84rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <Download size={15} />
+                  <span>Download .md</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="btn btn-primary"
+                  style={{
+                    padding: '9px 20px',
+                    fontSize: '0.84rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    backgroundColor: 'var(--accent-amber, #D97706)',
+                    borderColor: 'var(--accent-amber, #D97706)',
+                    color: '#FFFFFF'
+                  }}
+                >
+                  <span>Continue with Solution Builder</span>
+                  <ArrowRight size={15} />
+                </button>
+              </div>
             </div>
           ) : (
             <form onSubmit={handleStartCall}>
@@ -412,7 +622,7 @@ export const OutboundVoiceCallModal = ({
                   <input
                     id="user-mobile-input"
                     type="tel"
-                    placeholder="9876543210"
+                    placeholder="8200818728"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     disabled={callState === 'starting'}
@@ -431,7 +641,7 @@ export const OutboundVoiceCallModal = ({
                 </div>
 
                 <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
-                  Example: 9876543210 (We will dial your phone via our secure AI voice bridge).
+                  Example: 8200818728 (We will dial your phone via our secure AI voice bridge).
                 </span>
               </div>
 
@@ -458,7 +668,7 @@ export const OutboundVoiceCallModal = ({
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
-                {callState === 'error' || callState === 'completed' ? (
+                {callState === 'error' ? (
                   <button
                     type="button"
                     onClick={handleReset}

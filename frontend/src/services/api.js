@@ -365,6 +365,10 @@ export const api = {
     request('/voice/call', { method: 'POST', body: JSON.stringify(payload) }),
   getVoiceSessionStatus: (sessionId) =>
     request(`/voice/session/${sessionId}`),
+  getVoiceSessionRequirements: (sessionId) =>
+    request(`/voice/session/${sessionId}/requirements`),
+  getVoiceSessionMarkdownUrl: (sessionId) =>
+    `${getApiBaseUrl()}/voice/session/${sessionId}/markdown?download=true`,
   cancelVoiceCall: (sessionId) =>
     request(`/voice/session/${sessionId}/cancel`, { method: 'POST' }),
   getVoiceConfig: () =>

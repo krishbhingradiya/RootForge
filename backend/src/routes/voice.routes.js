@@ -284,6 +284,9 @@ router.get('/session/:id', optionalAuth, async (req, res) => {
       });
     }
 
+    const state = voiceWebhookService.getSessionDetails(session.id) ||
+      (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
+
     res.json({
       success: true,
       session: {
@@ -294,7 +297,10 @@ router.get('/session/:id', optionalAuth, async (req, res) => {
         connectedAt: session.connectedAt,
         endedAt: session.endedAt,
         errorMessage: session.errorMessage,
-        createdAt: session.createdAt
+        createdAt: session.createdAt,
+        turnCount: state?.conversation ? state.conversation.length : 0,
+        lastLanguage: state?.lastDetectedLanguage || 'en-IN',
+        hasGeneratedDoc: Boolean(state?.generatedDoc)
       }
     });
   } catch (err) {
@@ -303,6 +309,76 @@ router.get('/session/:id', optionalAuth, async (req, res) => {
       errorCode: 'SESSION_FETCH_ERROR',
       message: 'Failed to retrieve voice session status.'
     });
+  }
+});
+
+/**
+ * GET /api/voice/session/:id/requirements
+ * Fetches discovered structured requirements, conversation transcript, and generated document
+ */
+router.get('/session/:id/requirements', optionalAuth, async (req, res) => {
+  try {
+    const session = await twilioVoiceService.getSession(req.params.id);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        errorCode: 'SESSION_NOT_FOUND',
+        message: 'Voice session not found.'
+      });
+    }
+
+    const state = voiceWebhookService.getSessionDetails(session.id) ||
+      (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
+
+    res.json({
+      success: true,
+      sessionId: session.id,
+      status: session.status,
+      conversation: state?.conversation || [],
+      requirements: state?.requirements || {},
+      generatedDoc: state?.generatedDoc || null,
+      detectedLanguage: state?.lastDetectedLanguage || 'en-IN'
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      errorCode: 'REQUIREMENTS_FETCH_ERROR',
+      message: 'Failed to retrieve voice session requirements.'
+    });
+  }
+});
+
+/**
+ * GET /api/voice/session/:id/markdown
+ * Returns the raw or downloadable markdown document
+ */
+router.get('/session/:id/markdown', optionalAuth, async (req, res) => {
+  try {
+    const session = await twilioVoiceService.getSession(req.params.id);
+
+    if (!session) {
+      return res.status(404).send('Session not found.');
+    }
+
+    const state = voiceWebhookService.getSessionDetails(session.id) ||
+      (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
+
+    const markdown = state?.generatedDoc?.markdownContent;
+    if (!markdown) {
+      return res.status(404).send('Markdown requirement document not yet generated.');
+    }
+
+    const download = req.query.download === 'true';
+    if (download) {
+      const fileName = state?.generatedDoc?.fileName || 'project-requirements.md';
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    }
+
+    res.type('text/markdown');
+    res.send(markdown);
+  } catch (err) {
+    res.status(500).send('Failed to retrieve markdown document.');
   }
 });
 
@@ -336,3 +412,4 @@ router.get('/config', (req, res) => {
 });
 
 export default router;
+
