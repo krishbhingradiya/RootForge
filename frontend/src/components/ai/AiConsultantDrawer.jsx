@@ -20,8 +20,10 @@ import {
   AlertTriangle,
   RefreshCw,
   MoreVertical,
-  Square
+  Square,
+  PhoneCall
 } from 'lucide-react';
+import { OutboundVoiceCallModal } from './OutboundVoiceCallModal';
 import { AssistantWelcomeCard } from './AssistantWelcomeCard';
 import { isInitialWelcomeMessage, renderFormattedText } from './chatTextFormatter';
 import { StructuredConsultantCard } from './StructuredConsultantCard';
@@ -73,6 +75,7 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
   const [input, setInput] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('auto'); // 'auto' | 11 language codes
   const [detectedVoiceLanguage, setDetectedVoiceLanguage] = useState(null);
+  const [showPhoneCallModal, setShowPhoneCallModal] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
@@ -441,18 +444,37 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
             </div>
           </div>
 
-          {/* + New Chat Button */}
-          <button
-            type="button"
-            onClick={handleCreateNewChat}
-            disabled={creatingChat}
-            className="ai-chat-new-btn"
-            title={t('chat.newChat') || 'Start new conversation'}
-            aria-label={t('chat.newChat') || 'Start new conversation'}
-          >
-            <Plus size={15} />
-            <span>{creatingChat ? (t('chat.creating') || 'Creating...') : (t('chat.newChat') || 'New Chat')}</span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* AI Phone Call Button */}
+            <button
+              type="button"
+              onClick={() => setShowPhoneCallModal(true)}
+              className="ai-chat-new-btn"
+              style={{
+                backgroundColor: 'rgba(217, 119, 6, 0.12)',
+                borderColor: 'rgba(217, 119, 6, 0.3)',
+                color: 'var(--accent-amber, #D97706)'
+              }}
+              title="Talk to AI Business Consultant by Phone"
+              aria-label="Talk to AI Business Consultant by Phone"
+            >
+              <PhoneCall size={14} />
+              <span>AI Voice Call</span>
+            </button>
+
+            {/* + New Chat Button */}
+            <button
+              type="button"
+              onClick={handleCreateNewChat}
+              disabled={creatingChat}
+              className="ai-chat-new-btn"
+              title={t('chat.newChat') || 'Start new conversation'}
+              aria-label={t('chat.newChat') || 'Start new conversation'}
+            >
+              <Plus size={15} />
+              <span>{creatingChat ? (t('chat.creating') || 'Creating...') : (t('chat.newChat') || 'New Chat')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -948,6 +970,12 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
         </form>
       </div>
     </div>
+
+    <OutboundVoiceCallModal
+      isOpen={showPhoneCallModal}
+      onClose={() => setShowPhoneCallModal(false)}
+      workspaceId={wsId}
+    />
     </>
   );
 };

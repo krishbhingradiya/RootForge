@@ -1,205 +1,220 @@
 /**
- * Twilio Voice AI Discovery Routes — Phase 1
+ * Enterprise Outbound AI Voice API Routes
  * 
  * Endpoints:
- * - POST /api/voice/incoming           — Webhook for incoming Twilio voice calls
- * - POST /api/voice/status             — Webhook for Twilio call lifecycle status events
- * - GET  /api/voice/sessions/:id       — Retrieve status of a voice discovery session
- * - GET  /api/voice/workspaces/:id/sessions — List voice discovery sessions for a workspace
- * - POST /api/voice/sessions/:id/end   — Safely terminate an active voice call
- * - GET  /api/voice/config             — Get safe public voice configuration (phone number, status)
+ * - POST /api/voice/call             -> Initiates outbound AI phone call to user's mobile
+ * - POST /api/voice/incoming         -> Twilio Voice Webhook returning TwiML & stream connection
+ * - POST /api/voice/status           -> Twilio Call Status Callback Webhook
+ * - GET  /api/voice/session/:id      -> Live voice session polling / status check
+ * - POST /api/voice/session/:id/cancel -> Gracefully terminates ongoing voice call
+ * - GET  /api/voice/config           -> Non-sensitive configuration telemetry
  */
 
-import { Router } from 'express';
-import { twilioService } from '../services/twilio.service.js';
-import { voiceDiscoveryService } from '../services/voiceDiscovery.service.js';
-import { authenticate } from '../middleware/auth.js';
-import { handleRouteError } from '../services/authorization.service.js';
+import express from 'express';
+import { twilioVoiceService } from '../services/voice/twilioVoice.service.js';
+import { voiceWebhookService } from '../services/voice/voiceWebhook.service.js';
+import { maskPhoneNumber } from '../utils/phoneValidator.js';
+import jwt from 'jsonwebtoken';
 
-const router = Router();
+const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-enterprise-jwt-key-2026-solution-builder';
 
-/**
- * Middleware to validate Twilio Webhook Signatures.
- * Returns HTTP 403 if signature is missing or invalid.
- */
-function validateTwilioWebhook(req, res, next) {
-  // If in test environment with test header bypass, allow testing
-  if (process.env.NODE_ENV === 'test' && req.headers['x-test-bypass-auth'] === 'true') {
-    return next();
+// Optional/Soft Authentication Middleware (attaches user if token present)
+const optionalAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+    } catch {}
   }
-
-  if (!twilioService.authToken) {
-    console.warn('[VOICE] Rejected webhook: Twilio is not configured on this server (TWILIO_AUTH_TOKEN missing).');
-    return res.status(503).type('text/plain').send('Service Unavailable: Twilio is not configured');
-  }
-
-  const signature = req.headers['x-twilio-signature'];
-  if (!signature) {
-    console.warn('[VOICE] Rejected webhook: Missing X-Twilio-Signature header.');
-    return res.status(403).type('text/plain').send('Forbidden: Missing Twilio Signature');
-  }
-
-  // Construct absolute URL
-  const baseUrl = twilioService.webhookBaseUrl;
-  const originalPath = req.originalUrl || req.url;
-  const candidateUrl = baseUrl ? `${baseUrl}${originalPath}` : `${req.protocol}://${req.get('host')}${originalPath}`;
-
-  const isValid = twilioService.validateWebhookSignature({
-    url: candidateUrl,
-    params: req.body,
-    signature
-  });
-
-  if (!isValid) {
-    console.warn(`[VOICE] Rejected webhook: Invalid Twilio signature for URL ${candidateUrl}`);
-    return res.status(403).type('text/plain').send('Forbidden: Invalid Twilio Signature');
-  }
-
   next();
-}
+};
+
+// In-Memory Rate Limiter to prevent duplicate clicks and call spamming
+const callRateLimitMap = new Map(); // key -> [timestamp1, timestamp2]
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_CALLS_PER_WINDOW = 5;
+
+const rateLimitVoiceCalls = (req, res, next) => {
+  const identifier = req.user?.id || req.ip || 'anonymous';
+  const now = Date.now();
+
+  const timestamps = callRateLimitMap.get(identifier) || [];
+  const validTimestamps = timestamps.filter(ts => now - ts < RATE_LIMIT_WINDOW_MS);
+
+  if (validTimestamps.length >= MAX_CALLS_PER_WINDOW) {
+    return res.status(429).json({
+      success: false,
+      error: 'Too many call requests. Please wait a few minutes before requesting another AI voice call.'
+    });
+  }
+
+  validTimestamps.push(now);
+  callRateLimitMap.set(identifier, validTimestamps);
+  next();
+};
 
 /**
- * POST /api/voice/incoming
- * Handles incoming voice call from Twilio.
- * 
- * 1. Validates Twilio signature (HTTP 403 if invalid)
- * 2. Creates/resolves unique Discovery Session & stores Twilio Call SID (idempotent)
- * 3. Returns valid TwiML greeting and keeps call active
+ * POST /api/voice/call
+ * Initiates an outbound AI call to the user's mobile number
  */
-router.post('/incoming', validateTwilioWebhook, async (req, res) => {
+router.post('/call', optionalAuth, rateLimitVoiceCalls, async (req, res) => {
   try {
-    const {
-      CallSid: callSid,
-      From: from,
-      To: to,
-      CallStatus: callStatus
-    } = req.body;
+    const { phoneNumber, workspaceId = null } = req.body;
 
-    const workspaceId = req.query.workspaceId || req.body.workspaceId || null;
-
-    if (!callSid) {
-      return res.status(400).type('text/plain').send('Missing CallSid');
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        error: 'Mobile phone number is required.'
+      });
     }
 
-    // Create or retrieve persistent Discovery Session
-    const session = await voiceDiscoveryService.createOrGetIncomingSession({
-      callSid,
-      from,
-      to,
-      callStatus,
+    const userId = req.user?.id || null;
+
+    const result = await twilioVoiceService.createOutboundCall({
+      phoneNumber,
+      userId,
       workspaceId
     });
 
-    // Generate RootForge Greeting TwiML
-    const twimlXml = twilioService.generateIncomingCallTwiML({
-      greeting: 'Welcome to RootForge AI Solution Builder. Your discovery session has started.'
+    res.json(result);
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Unable to start the voice call. Please try again.',
+      code: err.code || 'CALL_INITIATION_FAILED'
+    });
+  }
+});
+
+/**
+ * POST /api/voice/incoming
+ * Twilio Voice Webhook: Executed when user answers their phone
+ * Returns TwiML connecting the call to WebSocket stream
+ */
+router.post('/incoming', async (req, res) => {
+  try {
+    const callSid = req.body.CallSid || req.query.CallSid;
+    const sessionId = req.query.sessionId || req.body.sessionId;
+    const host = req.headers.host;
+
+    const twiml = await voiceWebhookService.generateIncomingTwiML({
+      callSid,
+      sessionId,
+      host,
+      protocol: req.protocol
     });
 
-    res.type('text/xml').send(twimlXml);
+    res.type('text/xml');
+    res.send(twiml);
   } catch (err) {
-    console.error('[VOICE] Error in incoming voice webhook:', err);
-    // Return safe fallback TwiML to not abruptly drop caller without explanation
-    const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Aditi" language="en-IN">Welcome to RootForge. We are experiencing a temporary error. Please try again shortly.</Say>
-  <Hangup/>
-</Response>`;
-    res.status(500).type('text/xml').send(fallbackTwiml);
+    console.error('[VoiceRoute] Error generating incoming TwiML:', err.message);
+    res.type('text/xml');
+    res.send(`
+      <Response>
+        <Say voice="Polly.Aditi" language="en-IN">We are connecting you to RootForge AI Business Consultant.</Say>
+        <Connect>
+          <Stream url="wss://${req.headers.host || 'rootforge.onrender.com'}/api/voice/stream" />
+        </Connect>
+      </Response>
+    `);
   }
 });
 
 /**
  * POST /api/voice/status
- * Handles Twilio call lifecycle status events (ringing, in-progress, completed, failed, busy, no-answer).
+ * Twilio Call Status Callback Webhook
  */
-router.post('/status', validateTwilioWebhook, async (req, res) => {
+router.post('/status', async (req, res) => {
   try {
-    const {
-      CallSid: callSid,
-      CallStatus: callStatus,
-      CallDuration: callDuration,
-      From: from,
-      To: to
-    } = req.body;
+    const callSid = req.body.CallSid;
+    const callStatus = req.body.CallStatus;
+    const duration = req.body.CallDuration || 0;
+    const error = req.body.ErrorMessage || null;
+    const sessionId = req.query.sessionId || req.body.sessionId;
 
-    if (!callSid) {
-      return res.status(400).type('text/plain').send('Missing CallSid');
-    }
-
-    await voiceDiscoveryService.handleCallStatusWebhook({
+    await voiceWebhookService.handleStatusCallback({
       callSid,
       callStatus,
-      callDuration,
-      from,
-      to,
-      rawBody: req.body
+      duration,
+      error,
+      sessionId
     });
 
-    res.status(200).type('text/xml').send('<Response/>');
+    res.type('text/xml');
+    res.send('<Response />');
   } catch (err) {
-    console.error('[VOICE] Error handling call status webhook:', err);
-    res.status(500).type('text/plain').send('Status callback error');
+    console.warn('[VoiceRoute] Error in status callback:', err.message);
+    res.type('text/xml');
+    res.send('<Response />');
+  }
+});
+
+/**
+ * GET /api/voice/session/:id
+ * Fetches status of an active or recent voice session
+ */
+router.get('/session/:id', optionalAuth, async (req, res) => {
+  try {
+    const session = await twilioVoiceService.getSession(req.params.id);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Voice session not found.'
+      });
+    }
+
+    res.json({
+      success: true,
+      session: {
+        id: session.id,
+        status: session.status,
+        phoneNumberMasked: maskPhoneNumber(session.phoneNumber),
+        startedAt: session.startedAt,
+        connectedAt: session.connectedAt,
+        endedAt: session.endedAt,
+        errorMessage: session.errorMessage,
+        createdAt: session.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve voice session status.'
+    });
+  }
+});
+
+/**
+ * POST /api/voice/session/:id/cancel
+ * Cancels / hangs up an active voice call
+ */
+router.post('/session/:id/cancel', optionalAuth, async (req, res) => {
+  try {
+    const result = await twilioVoiceService.cancelCall(req.params.id);
+    res.json(result);
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to cancel voice call.'
+    });
   }
 });
 
 /**
  * GET /api/voice/config
- * Returns safe public configuration for frontend UI (e.g. phone number, whether configured).
+ * Non-sensitive configuration check for frontend UI
  */
-router.get('/config', authenticate, (req, res) => {
-  const isConfigured = twilioService.isConfigured();
+router.get('/config', (req, res) => {
   res.json({
-    isConfigured,
-    configured: isConfigured,
-    phoneNumber: isConfigured ? (twilioService.phoneNumber || null) : null,
-    provider: 'TWILIO',
-    channel: 'VOICE'
+    success: true,
+    ...twilioVoiceService.getConfigStatus()
   });
-});
-
-/**
- * GET /api/voice/sessions/:id
- * Retrieves status of a single voice discovery session.
- */
-router.get('/sessions/:id', authenticate, async (req, res) => {
-  try {
-    const sessionId = req.params.id;
-    const session = await voiceDiscoveryService.getSession(sessionId, req.user);
-    res.json(session);
-  } catch (err) {
-    handleRouteError(res, err, 'Failed to retrieve voice discovery session.');
-  }
-});
-
-/**
- * GET /api/voice/workspaces/:workspaceId/sessions
- * Lists voice discovery sessions associated with a workspace.
- */
-router.get('/workspaces/:workspaceId/sessions', authenticate, async (req, res) => {
-  try {
-    const workspaceId = req.params.workspaceId;
-    const sessions = await voiceDiscoveryService.listWorkspaceSessions(workspaceId, req.user);
-    res.json(sessions);
-  } catch (err) {
-    handleRouteError(res, err, 'Failed to list workspace voice sessions.');
-  }
-});
-
-/**
- * POST /api/voice/sessions/:id/end
- * Safely terminates an active voice discovery call.
- */
-router.post('/sessions/:id/end', authenticate, async (req, res) => {
-  try {
-    const sessionId = req.params.id;
-    const session = await voiceDiscoveryService.endSessionCall(sessionId, req.user);
-    res.json({
-      message: 'Voice discovery call terminated successfully.',
-      session
-    });
-  } catch (err) {
-    handleRouteError(res, err, 'Failed to end voice discovery call.');
-  }
 });
 
 export default router;

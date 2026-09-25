@@ -30,7 +30,8 @@ import versionRoutes from './routes/version.routes.js';
 import exportRoutes from './routes/export.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import voiceRoutes from './routes/voice.routes.js';
-import { twilioService } from './services/twilio.service.js';
+import { WebSocketServer } from 'ws';
+import { voiceStreamService } from './services/voice/voiceStream.service.js';
 import { aiService } from './ai/aiService.js';
 import { geminiConfig } from './ai/config/geminiConfig.js';
 import { providerRouter } from './ai/providers/providerRouter.js';
@@ -238,11 +239,30 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`provider=${safeGemini.provider}`);
   console.log(`model=${safeGemini.model}`);
   console.log(`apiKeyConfigured=${safeGemini.apiKeyConfigured}`);
-  console.log(`TWILIO_VOICE_CONFIG:`);
-  console.log(`isConfigured=${twilioService.isConfigured()}`);
-  console.log(`phoneNumber=${twilioService.phoneNumber ? twilioService.phoneNumber.replace(/\\d(?=\\d{4})/g, '*') : 'NOT_SET'}`);
-  console.log(`webhookBaseUrl=${twilioService.webhookBaseUrl || 'NOT_SET'}`);
   console.log(`=========================================`);
+});
+
+// Attach Twilio Voice Media Stream WebSocket Server
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', (ws, req) => {
+  voiceStreamService.handleConnection(ws, req);
+});
+
+server.on('upgrade', (request, socket, head) => {
+  try {
+    const { pathname } = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+
+    if (pathname === '/api/voice/stream' || pathname === '/voice/stream') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  } catch (err) {
+    socket.destroy();
+  }
 });
 
 server.on('error', (err) => {

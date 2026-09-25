@@ -1,6 +1,7 @@
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 generator client {
   provider      = "prisma-client-js"
@@ -39,7 +40,7 @@ model User {
   notifications         Notification[]
   versions              ArtifactVersion[]
   emailVerificationOTPs EmailVerificationOTP[]
-  voiceDiscoverySessions VoiceDiscoverySession[]
+  voiceSessions         VoiceSession[]
 }
 
 model EmailVerificationOTP {
@@ -93,7 +94,6 @@ model Workspace {
   activityLogs       ActivityLog[]
   versions           ArtifactVersion[]
   exportJobs         ExportJob[]
-  voiceDiscoverySessions VoiceDiscoverySession[]
   aiTokensUsed       Int                 @default(0)
 
   @@index([organizationId, createdAt])
@@ -586,29 +586,24 @@ model AdminAlert {
   @@index([severity, createdAt])
 }
 
-model VoiceDiscoverySession {
-  id              String     @id @default(cuid())
-  workspaceId     String?
-  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  userId          String?
-  user            User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
-  channel         String     @default("VOICE") // VOICE, WEB_VOICE, PHONE
-  provider        String     @default("TWILIO") // TWILIO
-  twilioCallSid   String     @unique
-  callerPhone     String?
-  recipientPhone  String?
-  status          String     @default("INITIATED") // INITIATED, RINGING, CONNECTED, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
-  language        String     @default("auto")
-  startedAt       DateTime   @default(now())
-  connectedAt     DateTime?
-  endedAt         DateTime?
-  durationSeconds Int?
-  callData        String?    // Serialized JSON metadata (CallDuration, recording, digits, etc.)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+model VoiceSession {
+  id               String    @id @default(cuid())
+  userId           String?
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspaceId      String?
+  phoneNumber      String
+  twilioCallSid    String?   @unique
+  twilioStreamSid  String?
+  status           String    @default("created") // created, initiating, ringing, connected, active, completed, failed, cancelled
+  startedAt        DateTime?
+  connectedAt      DateTime?
+  endedAt          DateTime?
+  errorMessage     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  @@index([workspaceId, createdAt])
+  @@map("voice_sessions")
+  @@index([userId, createdAt])
   @@index([twilioCallSid])
   @@index([status])
-  @@index([callerPhone])
 }

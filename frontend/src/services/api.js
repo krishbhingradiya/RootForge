@@ -357,14 +357,17 @@ export const api = {
     request(`/workspaces/${workspaceId}/chats/translate`, { method: 'POST', body: JSON.stringify(payload) }),
   transcribeAudio: (workspaceId, payload) =>
     request(`/workspaces/${workspaceId}/chats/transcribe-audio`, { method: 'POST', body: JSON.stringify(payload) }),
-  updateChatSession: (workspaceId, chatId, payload) => 
-    request(`/workspaces/${workspaceId}/chats/${chatId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-
-  // Twilio Voice Discovery (Phase 1)
-  getVoiceConfig: () => request('/voice/config'),
-  getVoiceSession: (sessionId) => request(`/voice/sessions/${sessionId}`),
-  listWorkspaceVoiceSessions: (workspaceId) => request(`/voice/workspaces/${workspaceId}/sessions`),
-  endVoiceSession: (sessionId) => request(`/voice/sessions/${sessionId}/end`, { method: 'POST' }),
+  synthesizeTts: (workspaceId, payload) =>
+    request(`/workspaces/${workspaceId}/chats/tts`, { method: 'POST', body: JSON.stringify(payload) }),
+  // Outbound Phone Call API (RootForge backend secure voice bridge)
+  initiateVoiceCall: (payload) =>
+    request('/voice/call', { method: 'POST', body: JSON.stringify(payload) }),
+  getVoiceSessionStatus: (sessionId) =>
+    request(`/voice/session/${sessionId}`),
+  cancelVoiceCall: (sessionId) =>
+    request(`/voice/session/${sessionId}/cancel`, { method: 'POST' }),
+  getVoiceConfig: () =>
+    request('/voice/config'),
 
   // Analysis
   getAnalysis: (id) => request(`/workspaces/${id}/analysis`),

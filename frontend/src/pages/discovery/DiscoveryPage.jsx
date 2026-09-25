@@ -21,14 +21,15 @@ import {
   History,
   Plus,
   Loader2,
-  Square
+  Square,
+  PhoneCall
 } from 'lucide-react';
+import { OutboundVoiceCallModal } from '../../components/ai/OutboundVoiceCallModal';
 import { AssistantWelcomeCard } from '../../components/ai/AssistantWelcomeCard';
 import { isInitialWelcomeMessage, renderFormattedText } from '../../components/ai/chatTextFormatter';
 import { StructuredConsultantCard } from '../../components/ai/StructuredConsultantCard';
 import { useChatTranslation } from '../../hooks/useChatTranslation';
 import { ChatVoiceInput, ChatMessageSpeaker, speechManager } from '../../components/ai/ChatVoiceControl';
-import { VoiceDiscoveryPanel } from '../../components/voice/VoiceDiscoveryPanel';
 import {
   LANGUAGE_OPTIONS,
   LANGUAGE_DISPLAY_MAP,
@@ -67,6 +68,7 @@ export const DiscoveryPage = () => {
   const [input, setInput] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('auto'); // 'auto' | 11 language codes
   const [detectedVoiceLanguage, setDetectedVoiceLanguage] = useState(null);
+  const [showPhoneCallModal, setShowPhoneCallModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [creatingChat, setCreatingChat] = useState(false);
@@ -517,9 +519,6 @@ export const DiscoveryPage = () => {
           </div>
         </div>
 
-        {/* Twilio Voice Discovery Phase 1 Status Panel */}
-        <VoiceDiscoveryPanel workspaceId={id} />
-
         {/* Discovery Prompts Guidance */}
         <div className="card" style={{ flex: 1, padding: 18, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
@@ -770,6 +769,27 @@ export const DiscoveryPage = () => {
                 )}
               </div>
             )}
+
+            {/* AI Phone Call Button */}
+            <button
+              type="button"
+              onClick={() => setShowPhoneCallModal(true)}
+              className="btn btn-secondary btn-sm"
+              title="Talk to AI Business Consultant by Phone"
+              style={{
+                fontSize: '0.75rem',
+                padding: '5px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                backgroundColor: 'rgba(217, 119, 6, 0.15)',
+                borderColor: 'rgba(217, 119, 6, 0.35)',
+                color: 'var(--accent-amber, #D97706)'
+              }}
+            >
+              <PhoneCall size={13} />
+              <span>AI Voice Call</span>
+            </button>
 
             {/* + New Chat Button */}
             <button
@@ -1072,6 +1092,12 @@ export const DiscoveryPage = () => {
           </form>
         </div>
       </div>
+
+      <OutboundVoiceCallModal
+        isOpen={showPhoneCallModal}
+        onClose={() => setShowPhoneCallModal(false)}
+        workspaceId={id}
+      />
     </div>
   );
 };
