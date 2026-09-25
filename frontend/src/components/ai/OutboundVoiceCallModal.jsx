@@ -37,8 +37,10 @@ export const OutboundVoiceCallModal = ({
   const [discoveryData, setDiscoveryData] = useState(null);
   const [showTranscript, setShowTranscript] = useState(false);
   const [loadingRequirements, setLoadingRequirements] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const pollTimerRef = useRef(null);
+
   const durationTimerRef = useRef(null);
 
   // Clean up timers on unmount or close
@@ -204,8 +206,6 @@ export const OutboundVoiceCallModal = ({
     setDiscoveryData(null);
     setShowTranscript(false);
   };
-
-  const [downloading, setDownloading] = useState(false);
 
   const handleDownloadMarkdown = async () => {
     setDownloading(true);
