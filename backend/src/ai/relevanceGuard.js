@@ -532,7 +532,16 @@ export function getClarificationResponse(context, userMessage = '', language = '
 export function extractQuestionIntent(userMessage = '') {
   const msg = (userMessage || '').toLowerCase().trim();
 
-  if (/\b(database|databases|db|data model|schema|tables|entities|relational|sql|nosql|postgres|postgresql|mongodb|redis|storage|concurrency|transactions)\b/i.test(msg)) {
+  if (/\b(make\s+it\s+simple|simplify|plain\s+english|plain\s+terms|aa\s+thodu\s+simple\s+kar|thodu\s+simple|simple\s+kar|saral\s+kar|saral\s+karo|thoda\s+simple\s+karo|aasan\s+banao)\b/i.test(msg) || /(સરળ|આસાન|सरल|आसान)/.test(msg)) {
+    return 'SIMPLIFY';
+  }
+  if (/\b(give\s+me\s+(?:a\s+)?prompt|write\s+(?:a\s+)?prompt|prompt\s+for\s+this|prompt\s+do|prompt\s+aap|prompt\s+banao)\b/i.test(msg) || /(પ્રોમ્પ્ટ|પ્રૉમ્પ્ટ|प्रॉम्प्ट)/.test(msg)) {
+    return 'PROMPT';
+  }
+  if (/\b(why\s+is\s+this\s+failing|why\s+failing|why\s+error|error\s+kem\s+aave|kyun\s+fail\s+ho\s+raha|debug\s+this|root\s+cause|fix\s+this\s+issue)\b/i.test(msg) || /(ફેલ|ભૂલ|विफल|त्रुटि)/.test(msg)) {
+    return 'DIAGNOSTICS';
+  }
+  if (/\b(database|databases|db|data model|schema|tables|entities|relational|sql|nosql|postgres|postgresql|mongodb|redis|storage|concurrency|transactions|what database)\b/i.test(msg)) {
     return 'DATABASE';
   }
   if (/\b(ehr|emr|fhir|hl7|interface with|integrate with|integration|integrations|external system|third-party|legacy|api|apis|connector|connectors|gateway|sync|synchronization|epic|cerner|salesforce|sap)\b/i.test(msg)) {
@@ -556,7 +565,7 @@ export function extractQuestionIntent(userMessage = '') {
   if (/\b(cost|pricing|budget|timeline|phases|milestones|duration|weeks|months|implementation plan)\b/i.test(msg)) {
     return 'IMPLEMENTATION';
   }
-  if (/\b(workflow|steps|flow|process|journey|lifecycle|scheduling|booking|renewal|intake|check-in|registration|how does|how should|how do|how to book|how to renew|how to schedule|how can we|how should .* work)\b/i.test(msg)) {
+  if (/\b(workflow|flow\s+diagram|flowchart|flow\s+chart|flow|steps|process|journey|lifecycle|scheduling|booking|renewal|intake|check-in|registration|how does|how should|how do|how to book|how to renew|how to schedule|how can we|how should .* work|flow\s+banavvo|flow\s+banana)\b/i.test(msg) || /(વર્કફ્લો|ફ્લો|वर्कफ़्लो|फ्लो)/.test(msg)) {
     return 'WORKFLOW';
   }
 
@@ -654,8 +663,79 @@ function _computeDynamicConsultantFallback(context, userMessage = '', intent = n
   const rawMsg = (userMessage || '').toLowerCase();
 
   switch (detectedIntent) {
+    case 'SIMPLIFY': {
+      return {
+        message: `Here is the simplified breakdown for ${ws.name || 'this solution'}:
+
+1. **What It Does:** Automatically captures requests, eliminates manual triage, and routes tasks to the right person.
+2. **How It Works:** Connects your existing database/tools to an automated workflow engine with real-time status tracking.
+3. **Key Benefit:** Reduces wait times and avoids lost or delayed requests without requiring complex manual spreadsheets.`,
+        suggestedAction: 'Review Simplified Summary'
+      };
+    }
+
+    case 'PROMPT': {
+      return {
+        message: `Here is a production-ready prompt template tailored for ${ws.name || 'this initiative'}:
+
+\`\`\`markdown
+You are an expert solution consultant specialized in ${ws.industry || 'enterprise workflows'}.
+Your objective is to optimize ${ws.name || 'this business process'}.
+
+Target Problem:
+${ws.challenge || '[DESCRIBE_OPERATIONAL_BOTTLENECK]'}
+
+Primary Goal:
+${ws.objective || '[DESCRIBE_TARGET_OUTCOME]'}
+
+Instructions:
+1. Provide a step-by-step workflow with clear role responsibilities.
+2. Identify 3 critical technical constraints (data integrity, security, APIs).
+3. Outline a minimal viable schema and notification schedule.
+
+Format: Concise markdown with bullet points and concrete examples.
+\`\`\``,
+        suggestedAction: 'Copy Prompt'
+      };
+    }
+
+    case 'DIAGNOSTICS': {
+      return {
+        message: `Root Cause Diagnostic Analysis for ${ws.name || 'this system'}:
+
+### 1. Likely Failure Modes
+* **State / Concurrency Collision:** Multiple concurrent requests attempting to mutate the same slot or resource simultaneously without row-level locks.
+* **Network & Gateway Timeouts:** Upstream integration endpoints taking longer than the configured client timeout.
+* **Payload Validation Mismatch:** Incoming webhook or form data missing required non-nullable fields.
+
+### 2. Immediate Remediation Steps
+1. **Enable Idempotency Keys:** Ensure all transactional endpoints check idempotency identifiers to prevent duplicate processing.
+2. **Review Database Lock Semantics:** Apply atomic transactions with \`SELECT ... FOR UPDATE\` for slot reservations.
+3. **Verify API Payloads:** Check server logs against the documented JSON schema.`,
+        suggestedAction: 'Review Diagnostic Fixes'
+      };
+    }
+
     case 'WORKFLOW': {
       let workflowTitle = `${ws.name || 'this initiative'} Operational Workflow`;
+      if (rawMsg.includes('support') || rawMsg.includes('ticket') || rawMsg.includes('customer')) {
+        return {
+          message: `Based on your customer support and service process for ${ws.name || 'this initiative'}, here is the recommended flow:
+
+Customer raises request / ticket
+→ Request received & logged
+→ AI classifies intent & urgency
+→ Check priority & SLA rules
+→ Route to appropriate support agent/team
+→ Agent resolves issue & updates status
+→ Customer notification & confirmation
+→ Ticket closed & satisfaction survey dispatched
+
+*If request is high priority / SLA breach:*
+→ Automatically escalate to shift supervisor.`,
+          suggestedAction: 'Review Process Model'
+        };
+      }
       if (rawMsg.includes('trainer')) workflowTitle = `${ws.name || 'this initiative'} — Trainer Scheduling & Allocation Workflow`;
       else if (rawMsg.includes('renewal')) workflowTitle = `${ws.name || 'this initiative'} — Membership Renewal & Subscription Workflow`;
       else if (rawMsg.includes('appointment')) workflowTitle = `${ws.name || 'this initiative'} — Patient Appointment Scheduling Workflow`;
@@ -923,7 +1003,15 @@ export function generateDynamicConsultantFallback(
     const parsed = JSON.parse(formatted.message);
     if (parsed) {
       if (normLang === 'gu') {
-        if (constraints?.length === 'ONE_LINE') {
+        if (constraints?.format === 'SIMPLIFIED' || detectedIntent === 'SIMPLIFY') {
+          parsed.summary = `સરળ શબ્દોમાં ${wsName} નું વર્કફ્લો:\n• વિનંતી આપમેળે સિસ્ટમમાં નોંધાય છે.\n• મેન્યુઅલ વિલંબ વગર યોગ્ય ટીમને સોંપવામાં આવે છે.\n• રિયલ-ટાઇમ અપડેટ્સ ગ્રાહક અને સ્ટાફ બંનેને મળે છે.`;
+        } else if (constraints?.format === 'PROMPT' || detectedIntent === 'PROMPT') {
+          parsed.summary = `અહીં ${wsName} માટે તૈયાર સિસ્ટમ પ્રોમ્પ્ટ છે:\n\n\`\`\`markdown\nતમે ${ws.industry || 'એન્ટરપ્રાઇઝ'} સોલ્યુશન કન્સલ્ટન્ટ છો. ${wsName} ના વર્કફ્લોને ઓપ્ટિમાઇઝ કરો.\nઉદ્દેશ: ${wsObjective}\nપડકાર: ${wsChallenge}\n\`\`\``;
+        } else if (constraints?.format === 'DIAGNOSTICS' || detectedIntent === 'DIAGNOSTICS') {
+          parsed.summary = `${wsName} માં સંભવિત ખામીના કારણો:\n૧. કન્કરન્સી લોકનો અભાવ (ડુપ્લિકેટ બુકિંગ)\n૨. API ટાઇમઆઉટ અને નેટવર્ક લેટન્સી\n૩. અયોગ્ય પેલોડ વેલિડેશન`;
+        } else if (constraints?.format === 'WORKFLOW' || detectedIntent === 'WORKFLOW') {
+          parsed.summary = `${wsName} માટે ભલામણ કરેલ ફ્લો:\nગ્રાહક વિનંતી -> AI વર્ગીકરણ -> પ્રાથમિકતા ચકાસણી -> ટીમ અસાઇનમેન્ટ -> નિરાકરણ -> ગ્રાહક કન્ફર્મેશન`;
+        } else if (constraints?.length === 'ONE_LINE') {
           parsed.summary = `${wsName} માટે મુખ્ય ઉદ્દેશ ${wsChallenge} ને ઉકેલીને ${wsObjective} પ્રાપ્ત કરવાનો છે.`;
         } else if (constraints?.length === 'TWO_LINES') {
           parsed.summary = `${wsName} માં પ્રાથમિક બિઝનેસ ચેલેન્જ: ${wsChallenge}.\nમુખ્ય ઉદ્દેશ: ${wsObjective}.`;
@@ -972,7 +1060,15 @@ export function generateDynamicConsultantFallback(
         }
         parsed.suggestedNextAction = 'સોલ્યુશન વિકલ્પોની સમીક્ષા કરો';
       } else if (normLang === 'hi') {
-        if (constraints?.length === 'ONE_LINE') {
+        if (constraints?.format === 'SIMPLIFIED' || detectedIntent === 'SIMPLIFY') {
+          parsed.summary = `सरल शब्दों में ${wsName} की कार्यप्रणाली:\n• अनुरोध स्वचालित रूप से दर्ज होता है।\n• बिना किसी देरी के सही टीम को भेजा जाता है।\n• रीयल-टाइम स्थिति की जानकारी तुरंत मिलती है।`;
+        } else if (constraints?.format === 'PROMPT' || detectedIntent === 'PROMPT') {
+          parsed.summary = `यहाँ ${wsName} के लिए तैयार प्रॉम्प्ट है:\n\n\`\`\`markdown\nआप ${ws.industry || 'एंटरप्राइज'} समाधान विशेषज्ञ हैं। ${wsName} की प्रक्रिया को अनुकूलित करें।\nलक्ष्य: ${wsObjective}\nचुनौती: ${wsChallenge}\n\`\`\``;
+        } else if (constraints?.format === 'DIAGNOSTICS' || detectedIntent === 'DIAGNOSTICS') {
+          parsed.summary = `${wsName} में संभावित विफलता के कारण:\n1. समवर्ती लॉकिंग की कमी (डुप्लिकेट अनुरोध)\n2. नेटवर्क और एपीआई टाइमआउट\n3. पेलोड सत्यापन त्रुटि`;
+        } else if (constraints?.format === 'WORKFLOW' || detectedIntent === 'WORKFLOW') {
+          parsed.summary = `${wsName} के लिए अनुशंसित वर्कफ़्लो:\nग्राहक अनुरोध -> AI वर्गीकरण -> प्राथमिकता जांच -> टीम असाइनमेंट -> समाधान -> ग्राहक पुष्टि`;
+        } else if (constraints?.length === 'ONE_LINE') {
           parsed.summary = `${wsName} का मुख्य उद्देश्य ${wsChallenge} को हल करके ${wsObjective} हासिल करना है।`;
         } else if (constraints?.length === 'TWO_LINES') {
           parsed.summary = `${wsName} की मुख्य व्यावसायिक चुनौती: ${wsChallenge}.\nमुख्य उद्देश्य: ${wsObjective}.`;
@@ -1010,7 +1106,15 @@ export function generateDynamicConsultantFallback(
         parsed.suggestedNextAction = 'समाधान विकल्पों की समीक्षा करें';
       } else {
         // English
-        if (constraints?.length === 'ONE_LINE') {
+        if (constraints?.format === 'SIMPLIFIED' || detectedIntent === 'SIMPLIFY') {
+          parsed.summary = `Simplified summary for ${wsName}:\n• Requests are automatically captured without manual paperwork.\n• Automated routing assigns issues to the right team immediately.\n• Real-time visibility ensures zero lost requests and SLA compliance.`;
+        } else if (constraints?.format === 'PROMPT' || detectedIntent === 'PROMPT') {
+          parsed.summary = `Here is the production-ready prompt template for ${wsName}:\n\n\`\`\`markdown\nYou are an enterprise solutions consultant specialized in ${ws.industry || 'process automation'}.\nObjective: ${wsObjective}\nChallenge: ${wsChallenge}\n\`\`\``;
+        } else if (constraints?.format === 'DIAGNOSTICS' || detectedIntent === 'DIAGNOSTICS') {
+          parsed.summary = `Likely root causes for ${wsName} failures:\n1. Concurrency conflict on shared resources without database row-locking.\n2. Upstream integration endpoint timeout.\n3. Request schema validation mismatch.`;
+        } else if (constraints?.format === 'WORKFLOW' || detectedIntent === 'WORKFLOW') {
+          parsed.summary = `Recommended workflow for ${wsName}:\nCustomer Request -> Intake & AI Classification -> SLA Rule Evaluation -> Team Routing -> Resolution -> Confirmation -> Archive`;
+        } else if (constraints?.length === 'ONE_LINE') {
           parsed.summary = `For ${wsName}, the primary focus is resolving ${wsChallenge} to achieve ${wsObjective}.`;
         } else if (constraints?.length === 'TWO_LINES') {
           parsed.summary = `The primary operational challenge for ${wsName} is ${wsChallenge}.\nThe targeted transformation objective is ${wsObjective}.`;
@@ -1249,6 +1353,203 @@ export async function generateConsultantAnswer(context, userMessage, conversatio
   };
 }
 
+/**
+ * Streams a dynamic, workspace-specific AI consultant answer in real-time.
+ * Emits progressive chunks via onChunk as they arrive from the model.
+ * 
+ * @param {object} context
+ * @param {string} userMessage
+ * @param {array} conversationHistory
+ * @param {string} language
+ * @param {object} options { onChunk, onFirstToken, signal }
+ */
+export async function streamConsultantAnswer(context, userMessage, conversationHistory = [], language = 'en', options = {}) {
+  const tStart = Date.now();
+  const normUserMsg = (userMessage || '').trim();
+  const { onChunk, onFirstToken, signal } = options;
+
+  const normLang = resolveConversationalLanguage(normUserMsg, language);
+  const constraints = detectResponseConstraints(normUserMsg);
+  const domainAnalysis = classifyDomain(normUserMsg, context, conversationHistory);
+  const domain = domainAnalysis.domain;
+
+  // Interception: GENERAL_OFF_DOMAIN
+  if (domain === DOMAIN_CLASSES.GENERAL_OFF_DOMAIN) {
+    const boundaryText = getDomainBoundaryResponse(normLang, context?.workspace);
+    if (typeof onChunk === 'function') {
+      onChunk({ delta: boundaryText, accumulatedText: boundaryText });
+    }
+    const structured = {
+      summary: boundaryText,
+      status: 'INFORMATION',
+      confirmedFacts: [],
+      requirements: [],
+      recommendations: [],
+      openQuestions: [],
+      inferences: [],
+      sources: [],
+      suggestedNextAction: 'Explore Business Requirements'
+    };
+    return {
+      message: boundaryText,
+      structured,
+      relevance: 'OFF_TOPIC',
+      domain: DOMAIN_CLASSES.GENERAL_OFF_DOMAIN,
+      language: normLang,
+      suggestedAction: 'Explore Business Requirements',
+      _perf: { totalMs: Date.now() - tStart, firstTokenMs: 1 }
+    };
+  }
+
+  // Interception: GREETING
+  if (domain === DOMAIN_CLASSES.GREETING) {
+    const greetingText = getGreetingResponse(normLang, context?.workspace);
+    if (typeof onChunk === 'function') {
+      onChunk({ delta: greetingText, accumulatedText: greetingText });
+    }
+    const structured = {
+      summary: greetingText,
+      status: 'INFORMATION',
+      confirmedFacts: [],
+      requirements: [],
+      recommendations: [],
+      openQuestions: [],
+      inferences: [],
+      sources: [],
+      suggestedNextAction: 'Explore Business Requirements'
+    };
+    return {
+      message: greetingText,
+      structured,
+      relevance: 'RELATED',
+      domain: DOMAIN_CLASSES.GREETING,
+      language: normLang,
+      suggestedAction: 'Explore Business Requirements',
+      _perf: { totalMs: Date.now() - tStart, firstTokenMs: 1 }
+    };
+  }
+
+  const configuredProvider = providerRouter.getConfiguredProviderName();
+  const apiKey = configuredProvider === 'gemini' ? geminiConfig.getApiKey() : process.env.AI_API_KEY;
+  const detectedIntent = extractQuestionIntent(normUserMsg);
+
+  if (configuredProvider !== 'demo' && apiKey) {
+    const promptData = buildConsultantDialoguePrompt(context, normUserMsg, conversationHistory, normLang, constraints);
+    const model = configuredProvider === 'gemini' ? geminiConfig.getModel() : (process.env.AI_MODEL || 'gpt-4o-mini');
+    const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
+    const temperature = parseFloat(process.env.AI_TEMPERATURE || '0.25');
+    const maxTokens = constraints?.maxTokensLimit || 2048;
+
+    let streamedRawText = '';
+    let extractedDisplayBuffer = '';
+
+    try {
+      const completion = await providerRouter.streamChatCompletion({
+        apiKey,
+        model,
+        systemPrompt: promptData.systemPrompt,
+        userPrompt: promptData.userPrompt,
+        temperature,
+        maxTokens,
+        timeoutMs,
+        signal,
+        onFirstToken,
+        onChunk: ({ delta, accumulatedText }) => {
+          streamedRawText = accumulatedText;
+
+          // Attempt progressive extraction of summary content for smooth conversational streaming
+          const summaryMatch = accumulatedText.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)/);
+          if (summaryMatch && summaryMatch[1]) {
+            try {
+              const currentUnescaped = JSON.parse(`"${summaryMatch[1]}"`);
+              const newDelta = currentUnescaped.slice(extractedDisplayBuffer.length);
+              if (newDelta) {
+                extractedDisplayBuffer = currentUnescaped;
+                if (typeof onChunk === 'function') {
+                  onChunk({
+                    delta: newDelta,
+                    accumulatedText: currentUnescaped
+                  });
+                }
+              }
+            } catch {}
+          }
+        }
+      });
+
+      const rawText = completion?.text || streamedRawText || '';
+      const parsed = safeParseJson(rawText);
+
+      if (parsed.success) {
+        const validated = validateConsultantResponse(parsed.data);
+        if (validated.valid) {
+          let structured = validated.normalized || parsed.data;
+
+          const isConciseMode = constraints.length === 'SHORT' || constraints.length === 'ONE_LINE' || constraints.length === 'TWO_LINES' || constraints.pointCount !== null;
+          if (isConciseMode) {
+            structured.recommendations = [];
+            structured.requirements = [];
+            structured.openQuestions = [];
+            structured.inferences = [];
+            structured.confirmedFacts = [];
+          }
+
+          return {
+            message: JSON.stringify(structured),
+            structured,
+            relevance: 'RELATED',
+            domain,
+            language: normLang,
+            suggestedAction: structured.suggestedNextAction || 'Review Solution Options',
+            _perf: {
+              firstTokenMs: completion.firstTokenMs,
+              totalMs: Date.now() - tStart
+            }
+          };
+        }
+      }
+
+      if (rawText.trim()) {
+        const formatted = formatConsultantReturn(rawText.trim(), 'Review Solution Options', context, detectedIntent);
+        return {
+          message: JSON.stringify(formatted.structured),
+          structured: formatted.structured,
+          relevance: 'RELATED',
+          domain,
+          language: normLang,
+          suggestedAction: formatted.suggestedNextAction || 'Review Solution Options',
+          _perf: {
+            firstTokenMs: completion.firstTokenMs,
+            totalMs: Date.now() - tStart
+          }
+        };
+      }
+    } catch (err) {
+      if (err.code === 'CANCELED' || signal?.aborted) {
+        throw err;
+      }
+      console.warn(`[Consultant Stream] Real AI stream failed (${err.code || 'ERROR'}): ${err.message}. Falling back.`);
+    }
+  }
+
+  // Fallback if AI provider unavailable
+  const fallbackResult = generateDynamicConsultantFallback(context, normUserMsg, detectedIntent, normLang, constraints);
+  const fallbackSummary = fallbackResult.structured?.summary || fallbackResult.message;
+  if (typeof onChunk === 'function') {
+    onChunk({ delta: fallbackSummary, accumulatedText: fallbackSummary });
+  }
+
+  return {
+    ...fallbackResult,
+    relevance: 'RELATED',
+    domain,
+    _perf: {
+      firstTokenMs: 2,
+      totalMs: Date.now() - tStart
+    }
+  };
+}
+
 export const relevanceGuard = {
   classify: classifyRelevance,
   classifyDomain,
@@ -1256,6 +1557,7 @@ export const relevanceGuard = {
   getGreetingResponse,
   getClarificationResponse,
   generateConsultantAnswer,
+  streamConsultantAnswer,
   buildDynamicConsultantContext,
   extractQuestionIntent,
   generateDynamicConsultantFallback,

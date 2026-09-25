@@ -36,44 +36,12 @@ export function setApiServerUrl(url) {
 
 
 function inferLoadingMessage(endpoint = '', options = {}) {
-  const method = (options.method || 'GET').toUpperCase();
-  const ep = (endpoint || '').toLowerCase();
-
-  if (options.silentLoading) return null;
-
-  // Skip lightweight telemetry, auth status checks, and inline speech/translation
-  if (ep.includes('/health') || ep.includes('/auth') || ep.includes('/chat/translate') || ep.includes('/workspaces?')) {
+  // Only show full-screen robot loading overlay if explicitly requested via options.showRobotLoading
+  // All internal requests, sub-tab switches, saves, filters, and background operations remain completely non-blocking
+  if (!options.showRobotLoading) {
     return null;
   }
-
-  // Solution Lifecycle Section switching (GET requests)
-  if (method === 'GET') {
-    if (ep.includes('/discovery')) return null;
-    if (ep.includes('/analysis')) return 'Analyzing your requirements...';
-    if (ep.includes('/solution')) return 'Designing your solution...';
-    if (ep.includes('/process')) return 'Mapping your business process...';
-    if (ep.includes('/ux')) return 'Preparing your experience...';
-    if (ep.includes('/architecture')) return 'Designing the system architecture...';
-    if (ep.includes('/database') || ep.includes('/schema') || ep.includes('/apis')) return 'Structuring your data and APIs...';
-    if (ep.includes('/planning')) return 'Calculating your implementation effort...';
-    if (ep.includes('/collaboration')) return 'Connecting your team...';
-    if (ep.includes('/exports')) return 'Preparing your deliverables...';
-  }
-
-  // AI & Generation endpoints (POST / PATCH)
-  if (method === 'POST' || method === 'PATCH') {
-    if (ep.includes('/discovery')) return 'Understanding your business...';
-    if (ep.includes('/analysis')) return 'Analyzing your requirements...';
-    if (ep.includes('/solution')) return 'Designing your solution...';
-    if (ep.includes('/process')) return 'Mapping your business process...';
-    if (ep.includes('/ux')) return 'Preparing your experience...';
-    if (ep.includes('/architecture')) return 'Designing the system architecture...';
-    if (ep.includes('/database')) return 'Structuring your data and APIs...';
-    if (ep.includes('/planning')) return 'Building your implementation roadmap...';
-    if (ep.includes('/documents')) return 'Analyzing your requirements...';
-  }
-
-  return null;
+  return options.loadingMessage || 'Processing...';
 }
 
 // In-flight request cache for deduplication of concurrent GET requests
@@ -222,6 +190,95 @@ async function request(endpoint, options = {}) {
   return executeRequest(endpoint, options);
 }
 
+export async function streamRequest(endpoint, options = {}) {
+  const token = localStorage.getItem('aisb_token');
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'text/event-stream',
+    ...(options.headers || {})
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const cleanEndpoint = normalizedEndpoint.startsWith('/api/')
+    ? normalizedEndpoint.slice(4)
+    : normalizedEndpoint;
+  const fullUrl = `${baseUrl}${cleanEndpoint}?stream=true`;
+
+  const response = await fetch(fullUrl, {
+    method: 'POST',
+    ...options,
+    headers,
+    signal: options.signal
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(errText || `Server error: HTTP ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let finalPayload = null;
+  let accumulatedDelta = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+
+    for (const evt of events) {
+      if (!evt.trim()) continue;
+      const lines = evt.split('\n');
+      let eventType = 'message';
+      let dataStr = '';
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataStr = line.slice(5).trim();
+        }
+      }
+
+      if (dataStr) {
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (eventType === 'start' && typeof options.onStart === 'function') {
+            options.onStart(parsed);
+          } else if (eventType === 'chunk') {
+            accumulatedDelta = parsed.text || (accumulatedDelta + (parsed.delta || ''));
+            if (typeof options.onChunk === 'function') {
+              options.onChunk({ delta: parsed.delta, text: accumulatedDelta, structured: parsed.structured });
+            }
+          } else if (eventType === 'done') {
+            finalPayload = parsed;
+            if (typeof options.onDone === 'function') {
+              options.onDone(parsed);
+            }
+          } else if (eventType === 'error') {
+            throw new Error(parsed.message || parsed.error || 'Streaming error');
+          }
+        } catch (e) {
+          if (e.message !== 'Unexpected end of JSON input') {
+            console.warn('[Stream Parse Notice]', e.message);
+          }
+        }
+      }
+    }
+  }
+
+  return finalPayload || { message: accumulatedDelta };
+}
+
 export const api = {
   // Auth
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
@@ -257,25 +314,57 @@ export const api = {
     if (params.length) url += `?${params.join('&')}`;
     return request(url);
   },
-  sendDiscoveryMessage: (id, content, chatId = null, clientRequestId = null, language = 'en', uiLanguage = null) => 
-    request(`/workspaces/${id}/discovery/messages`, { method: 'POST', body: JSON.stringify({ content, chatId, clientRequestId, language, uiLanguage: uiLanguage || language }) }),
-
   // Chat Sessions (Workspace & Stage Scoped)
   getChatSessions: (workspaceId, stage = 'discovery') => request(`/workspaces/${workspaceId}/chats?stage=${encodeURIComponent(stage)}`),
   createChatSession: (workspaceId, stage = 'discovery', title = null, initialMessage = null) => 
     request(`/workspaces/${workspaceId}/chats`, { method: 'POST', body: JSON.stringify({ stage, title, initialMessage }) }),
   getChatMessages: (workspaceId, chatId) => request(`/workspaces/${workspaceId}/chats/${chatId}`),
-  sendChatMessage: (workspaceId, chatId, content, clientRequestId = null, language = 'en', uiLanguage = null) => 
-    request(`/workspaces/${workspaceId}/chats/${chatId}/messages`, { method: 'POST', body: JSON.stringify({ content, clientRequestId, language, uiLanguage: uiLanguage || language }) }),
+  sendChatMessage: (workspaceId, chatId, content, clientRequestId = null, language = 'en', uiLanguage = null, detectedLanguage = null, inputType = 'text', requestOptions = {}) => {
+    if (requestOptions.onChunk) {
+      return streamRequest(`/workspaces/${workspaceId}/chats/${chatId}/messages`, {
+        body: JSON.stringify({ content, clientRequestId, language, uiLanguage: uiLanguage || language, detectedLanguage, inputType }),
+        signal: requestOptions.signal,
+        onChunk: requestOptions.onChunk,
+        onStart: requestOptions.onStart,
+        onDone: requestOptions.onDone
+      });
+    }
+    return request(`/workspaces/${workspaceId}/chats/${chatId}/messages`, { 
+      method: 'POST', 
+      body: JSON.stringify({ content, clientRequestId, language, uiLanguage: uiLanguage || language, detectedLanguage, inputType }),
+      signal: requestOptions.signal,
+      timeout: requestOptions.timeout
+    });
+  },
+  sendDiscoveryMessage: (workspaceId, content, chatId = null, clientRequestId = null, language = 'en', uiLanguage = null, detectedLanguage = null, inputType = 'text', requestOptions = {}) => {
+    if (requestOptions.onChunk) {
+      return streamRequest(`/workspaces/${workspaceId}/discovery/messages`, {
+        body: JSON.stringify({ content, chatId, clientRequestId, language, uiLanguage: uiLanguage || language, detectedLanguage, inputType }),
+        signal: requestOptions.signal,
+        onChunk: requestOptions.onChunk,
+        onStart: requestOptions.onStart,
+        onDone: requestOptions.onDone
+      });
+    }
+    return request(`/workspaces/${workspaceId}/discovery/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content, chatId, clientRequestId, language, uiLanguage: uiLanguage || language, detectedLanguage, inputType }),
+      signal: requestOptions.signal,
+      timeout: requestOptions.timeout
+    });
+  },
   translateChatMessages: (workspaceId, payload) =>
     request(`/workspaces/${workspaceId}/chats/translate`, { method: 'POST', body: JSON.stringify(payload) }),
   transcribeAudio: (workspaceId, payload) =>
     request(`/workspaces/${workspaceId}/chats/transcribe-audio`, { method: 'POST', body: JSON.stringify(payload) }),
-  synthesizeTts: (workspaceId, payload) =>
-    request(`/workspaces/${workspaceId}/chats/tts`, { method: 'POST', body: JSON.stringify(payload) }),
-  archiveChatSession: (workspaceId, chatId) => request(`/workspaces/${workspaceId}/chats/${chatId}`, { method: 'DELETE' }),
   updateChatSession: (workspaceId, chatId, payload) => 
     request(`/workspaces/${workspaceId}/chats/${chatId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  // Twilio Voice Discovery (Phase 1)
+  getVoiceConfig: () => request('/voice/config'),
+  getVoiceSession: (sessionId) => request(`/voice/sessions/${sessionId}`),
+  listWorkspaceVoiceSessions: (workspaceId) => request(`/voice/workspaces/${workspaceId}/sessions`),
+  endVoiceSession: (sessionId) => request(`/voice/sessions/${sessionId}/end`, { method: 'POST' }),
 
   // Analysis
   getAnalysis: (id) => request(`/workspaces/${id}/analysis`),

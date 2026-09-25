@@ -54,33 +54,31 @@ export const TECHNICAL_TERMS = new Set([
 ]);
 
 /**
- * Normalizes language codes into supported ISO codes ('gu', 'hi', 'en')
+ * Normalizes language codes into supported ISO codes ('en', 'hi', 'gu', 'mr', 'bn', 'ta', 'te', 'kn', 'ml', 'pa', 'ur')
  */
 export function normalizeLanguage(lang) {
   const normalized = (lang || 'en').toLowerCase().trim();
   if (normalized.startsWith('gu')) return 'gu';
   if (normalized.startsWith('hi')) return 'hi';
+  if (normalized.startsWith('mr')) return 'mr';
+  if (normalized.startsWith('bn')) return 'bn';
+  if (normalized.startsWith('ta')) return 'ta';
+  if (normalized.startsWith('te')) return 'te';
+  if (normalized.startsWith('kn')) return 'kn';
+  if (normalized.startsWith('ml')) return 'ml';
+  if (normalized.startsWith('pa')) return 'pa';
+  if (normalized.startsWith('ur')) return 'ur';
   return 'en';
 }
 
 /**
  * Segments a mixed-language sentence into discrete, ordered language blocks.
- * For example:
- * "તમારી appointment scheduling system માટે REST API integration જરૂરી છે."
- * Returns:
- * [
- *   { text: "તમારી", language: "gu" },
- *   { text: "appointment scheduling system", language: "en" },
- *   { text: "માટે", language: "gu" },
- *   { text: "REST API integration", language: "en" },
- *   { text: "જરૂરી છે.", language: "gu" }
- * ]
  * 
  * @param {string} text 
- * @param {string} baseLanguage 'gu' | 'hi' | 'en'
+ * @param {string} baseLanguage
  * @returns {Array<{ text: string, language: string }>}
  */
-export function segmentMixedLanguageText(text, baseLanguage = 'gu') {
+export function segmentMixedLanguageText(text, baseLanguage = 'en') {
   if (!text || typeof text !== 'string') return [];
   const trimmed = text.trim();
   if (!trimmed) return [];
@@ -104,9 +102,7 @@ export function segmentMixedLanguageText(text, baseLanguage = 'gu') {
     if (isWhitespace) {
       tokenLang = currentLang || normBase;
     } else {
-      const hasIndic = normBase === 'gu'
-        ? /[\u0A80-\u0AFF]/.test(token)
-        : /[\u0900-\u097F]/.test(token);
+      const hasIndic = /[\u0600-\u0DFF]/.test(token);
       const hasLatin = /[a-zA-Z]/.test(token);
 
       if (hasIndic) {
@@ -178,17 +174,16 @@ function splitLongSegment(text, maxLen = 150) {
 
 /**
  * Downloads audio frame buffer for a single short text segment via Google TTS.
- * Uses authentic Indian English (en-IN), Gujarati (gu), and Hindi (hi).
  * 
  * @param {string} text Segment text (under 200 chars)
- * @param {string} lang Language code ('gu', 'hi', 'en', 'en-IN')
+ * @param {string} lang Language code
  * @returns {Promise<Buffer>}
  */
 function fetchSegmentAudio(text, lang) {
   return new Promise((resolve, reject) => {
     const encodedText = encodeURIComponent(text);
-    // Explicitly target Indian English accent for English phrases
-    const targetLocale = (lang === 'en' || lang === 'en-in' || lang === 'en-IN') ? 'en-IN' : (lang === 'gu' ? 'gu' : (lang === 'hi' ? 'hi' : lang));
+    const normalized = normalizeLanguage(lang);
+    const targetLocale = (normalized === 'en') ? 'en-IN' : normalized;
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${targetLocale}&client=tw-ob&q=${encodedText}`;
 
     const req = https.get(

@@ -122,15 +122,19 @@ router.post('/:id/chats/:chatId/messages', authenticate, async (req, res) => {
     const { id: workspaceId, chatId } = req.params;
     const session = await assertChatSessionAccess(chatId, workspaceId, req.user);
 
-    const { content, clientRequestId = null } = req.body;
-    const uiLanguage = (req.body.uiLanguage || req.body.language || req.query.language || 'en').toLowerCase().trim();
+    const { content, clientRequestId = null, detectedLanguage: clientDetectedLang = null, inputType = 'text' } = req.body;
+    const requestedLanguage = (req.body.language || req.body.uiLanguage || req.query.language || 'auto').toLowerCase().trim();
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Message content is required.' });
     }
 
-    // Resolve conversational language using 3-tier hierarchy:
-    // Priority 1: Current message script -> Priority 2: UI language fallback -> Priority 3: Explicit instruction
-    const conversationalLanguage = resolveConversationalLanguage(content, uiLanguage);
+    // Resolve conversational language per message (independent of previous chat history)
+    const conversationalLanguage = resolveConversationalLanguage(content, requestedLanguage);
+    const detectedLanguage = clientDetectedLang && clientDetectedLang !== 'auto'
+      ? clientDetectedLang
+      : resolveConversationalLanguage(content, null);
+
+    const wantsStream = req.query.stream === 'true' || req.body.stream === true || req.headers.accept?.includes('text/event-stream');
 
     // 1. Idempotency Check & Save User Message
     const { userMessage, isDuplicate } = await chatSessionService.saveUserMessage(
@@ -155,37 +159,128 @@ router.post('/:id/chats/:chatId/messages', authenticate, async (req, res) => {
         if (existingAssistantMsg.structuredContent) {
           try { structured = JSON.parse(existingAssistantMsg.structuredContent); } catch {}
         }
-        return res.json({
+        const dupResponse = {
           userMessage,
           assistantMessage: existingAssistantMsg,
           structured,
           relevance: 'RELATED',
           language: conversationalLanguage,
           conversationalLanguage,
-          uiLanguage,
+          detectedLanguage,
+          responseLanguage: conversationalLanguage,
+          inputType,
           isDuplicate: true,
           _perf: { totalMs: Date.now() - tTotalStart, cached: true }
-        });
+        };
+
+        if (wantsStream) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          res.write(`event: start\ndata: ${JSON.stringify({ userMessage, chatId, clientRequestId })}\n\n`);
+          const existingText = existingAssistantMsg.content;
+          res.write(`event: chunk\ndata: ${JSON.stringify({ delta: existingText, text: existingText })}\n\n`);
+          res.write(`event: done\ndata: ${JSON.stringify(dupResponse)}\n\n`);
+          return res.end();
+        }
+
+        return res.json(dupResponse);
       }
     }
 
-    // 2. Canonical Business Context Retrieval with Query-Aware Chunk Relevance
+    // 2. Parallelize Context Retrieval & Bounded Conversation History
     const tContextStart = Date.now();
-    const context = await getWorkspaceContext(workspaceId, req.user, { query: content.trim() });
+    const [context, recentMessages] = await Promise.all([
+      getWorkspaceContext(workspaceId, req.user, { query: content.trim() }),
+      prisma.message.findMany({
+        where: { conversationId: chatId },
+        orderBy: { createdAt: 'desc' },
+        take: 8
+      })
+    ]);
     const contextMs = Date.now() - tContextStart;
 
-    // 3. Bounded Conversation History (last 8 messages for optimal token window)
-    const recentMessages = await prisma.message.findMany({
-      where: { conversationId: chatId },
-      orderBy: { createdAt: 'desc' },
-      take: 8
-    });
     const conversationHistory = recentMessages.reverse().map(m => ({
       role: m.role,
       content: m.content
     }));
 
-    // 4. Run AI Business Consultant using resolved conversational language
+    // 3. Handle Streaming vs Standard Execution
+    if (wantsStream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      res.write(`event: start\ndata: ${JSON.stringify({ userMessage, chatId, clientRequestId })}\n\n`);
+
+      const tProviderStart = Date.now();
+      let firstTokenMs = null;
+
+      const aiResponse = await relevanceGuard.streamConsultantAnswer(
+        context,
+        content.trim(),
+        conversationHistory,
+        conversationalLanguage,
+        {
+          onFirstToken: (ftMs) => {
+            firstTokenMs = ftMs;
+          },
+          onChunk: ({ delta, accumulatedText }) => {
+            res.write(`event: chunk\ndata: ${JSON.stringify({ delta, text: accumulatedText })}\n\n`);
+          }
+        }
+      );
+      const providerMs = Date.now() - tProviderStart;
+
+      // Persist Assistant Response
+      const tPersistStart = Date.now();
+      const assistantMessage = await chatSessionService.saveAssistantMessage(
+        chatId,
+        aiResponse.message,
+        aiResponse.structured,
+        aiResponse.suggestedAction
+      );
+      const persistenceMs = Date.now() - tPersistStart;
+
+      // Activity Log (Non-blocking)
+      prisma.activityLog.create({
+        data: {
+          workspaceId,
+          userId: req.user.id,
+          userName: req.user.name,
+          action: 'AI_CONSULTANT',
+          details: `Consulted on [${session.stage}]: "${content.slice(0, 60)}..."`
+        }
+      }).catch(err => console.warn('Non-critical activity log error:', err.message));
+
+      const totalMs = Date.now() - tTotalStart;
+
+      const donePayload = {
+        userMessage,
+        assistantMessage,
+        structured: aiResponse.structured || null,
+        relevance: aiResponse.relevance || 'RELATED',
+        domain: aiResponse.domain || 'WORKSPACE_RELATED',
+        language: aiResponse.language || conversationalLanguage,
+        conversationalLanguage: aiResponse.language || conversationalLanguage,
+        detectedLanguage,
+        responseLanguage: aiResponse.language || conversationalLanguage,
+        inputType,
+        _perf: {
+          contextMs,
+          firstTokenMs: firstTokenMs || aiResponse._perf?.firstTokenMs,
+          providerMs,
+          persistenceMs,
+          totalMs
+        }
+      };
+
+      res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+      return res.end();
+    }
+
+    // 4. Standard JSON Non-Streaming Path
     const tProviderStart = Date.now();
     const aiResponse = await relevanceGuard.generateConsultantAnswer(
       context,
@@ -195,7 +290,7 @@ router.post('/:id/chats/:chatId/messages', authenticate, async (req, res) => {
     );
     const providerMs = Date.now() - tProviderStart;
 
-    // 5. Persist Assistant Response & Structured Data
+    // Persist Assistant Response & Structured Data
     const tPersistStart = Date.now();
     const assistantMessage = await chatSessionService.saveAssistantMessage(
       chatId,
@@ -205,22 +300,16 @@ router.post('/:id/chats/:chatId/messages', authenticate, async (req, res) => {
     );
     const persistenceMs = Date.now() - tPersistStart;
 
-    // 6. Non-blocking Activity Log
-    prisma.user.findUnique({ where: { id: req.user.id } })
-      .then(u => {
-        if (u) {
-          return prisma.activityLog.create({
-            data: {
-              workspaceId,
-              userId: req.user.id,
-              userName: req.user.name,
-              action: 'AI_CONSULTANT',
-              details: `Consulted on [${session.stage}]: "${content.slice(0, 60)}..."`
-            }
-          });
-        }
-      })
-      .catch(err => console.warn('Non-critical activity log error:', err.message));
+    // Non-blocking Activity Log
+    prisma.activityLog.create({
+      data: {
+        workspaceId,
+        userId: req.user.id,
+        userName: req.user.name,
+        action: 'AI_CONSULTANT',
+        details: `Consulted on [${session.stage}]: "${content.slice(0, 60)}..."`
+      }
+    }).catch(err => console.warn('Non-critical activity log error:', err.message));
 
     const totalMs = Date.now() - tTotalStart;
 
@@ -232,7 +321,9 @@ router.post('/:id/chats/:chatId/messages', authenticate, async (req, res) => {
       domain: aiResponse.domain || 'WORKSPACE_RELATED',
       language: aiResponse.language || conversationalLanguage,
       conversationalLanguage: aiResponse.language || conversationalLanguage,
-      uiLanguage,
+      detectedLanguage,
+      responseLanguage: aiResponse.language || conversationalLanguage,
+      inputType,
       _perf: {
         contextMs,
         providerMs,

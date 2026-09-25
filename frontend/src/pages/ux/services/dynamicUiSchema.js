@@ -58,17 +58,30 @@ export const THEME_ARCHETYPES = {
     id: 'warm-cream',
     name: 'Warm Cream & Ivory',
     mode: 'light',
-    primary: '#92400E',
-    secondary: '#78350F',
-    accent: '#B45309',
-    surface: '#FFFFFF',
-    background: '#FDF8F0',
-    text: '#1C1917',
-    textMuted: '#78716C',
-    border: 'rgba(28, 25, 23, 0.12)',
+    primary: '#8B4513',
+    primaryHover: '#6F350F',
+    secondary: '#B66A24',
+    accent: '#B66A24',
+    accentColor: '#8B4513',
+    surface: '#FFFDF8',
+    surfaceSecondary: '#F1E9DD',
+    cardBg: '#FFFDF8',
+    background: '#F6F1E8',
+    bgPrimary: '#F6F1E8',
+    text: '#29231F',
+    textPrimary: '#29231F',
+    textMuted: '#746B62',
+    textSecondary: '#746B62',
+    border: '#D8CCBC',
+    badgeBg: 'rgba(139, 69, 19, 0.1)',
+    badgeText: '#8B4513',
+    success: '#2F7D5B',
+    warning: '#B7791F',
+    danger: '#B84A4A',
     radius: '10px',
+    borderRadius: '10px',
     density: 'comfortable',
-    fontFamily: 'Plus Jakarta Sans, sans-serif'
+    fontFamily: 'Plus Jakarta Sans, Inter, sans-serif'
   },
   'warm-luxury': {
     id: 'warm-luxury',
@@ -125,7 +138,7 @@ export const THEME_ARCHETYPES = {
  * @param {object} spec
  * @returns {{ valid: boolean, errors: string[], repairedSpec: object }}
  */
-export function validateAndRepairUiSpecification(spec, fallbackThemeId = 'enterprise-slate') {
+export function validateAndRepairUiSpecification(spec, fallbackThemeId = 'warm-cream') {
   const errors = [];
   if (!spec || typeof spec !== 'object') {
     errors.push('UI specification must be an object');
@@ -171,26 +184,28 @@ export function validateAndRepairUiSpecification(spec, fallbackThemeId = 'enterp
     repaired.layout.sidebarPosition = repaired.layout.sidebarPosition || 'left';
   }
 
-  // 3. Validate / Repair Theme
-  const activeTheme = THEME_ARCHETYPES[repaired.theme?.id || fallbackThemeId] || THEME_ARCHETYPES['enterprise-slate'];
-  const baseTheme = repaired.theme || {};
+  // 3. Validate / Repair Theme: Active theme ID takes precedence to ensure instant live UI updates
+  const targetThemeId = fallbackThemeId || repaired.theme?.id || 'warm-cream';
+  const activeTheme = THEME_ARCHETYPES[targetThemeId] || THEME_ARCHETYPES['warm-cream'];
   repaired.theme = {
     ...activeTheme,
-    ...baseTheme,
-    primary: baseTheme.primary || activeTheme.primary,
-    secondary: baseTheme.secondary || activeTheme.secondary,
-    accent: baseTheme.accent || activeTheme.accent,
-    surface: baseTheme.surface || activeTheme.surface,
-    cardBg: baseTheme.cardBg || baseTheme.surface || activeTheme.surface,
-    background: baseTheme.background || activeTheme.background,
-    text: baseTheme.text || activeTheme.text,
-    textMuted: baseTheme.textMuted || activeTheme.textMuted,
-    border: baseTheme.border || activeTheme.border,
-    buttonPrimary: baseTheme.buttonPrimary || baseTheme.primary || activeTheme.primary,
-    buttonSecondary: baseTheme.buttonSecondary || baseTheme.secondary || activeTheme.secondary,
-    radius: baseTheme.radius || activeTheme.radius || '8px',
-    density: baseTheme.density || repaired.layout?.density || activeTheme.density || 'comfortable',
-    fontFamily: baseTheme.fontFamily || activeTheme.fontFamily || 'Plus Jakarta Sans, Inter, sans-serif'
+    id: activeTheme.id,
+    name: activeTheme.name,
+    mode: activeTheme.mode,
+    primary: activeTheme.primary,
+    secondary: activeTheme.secondary,
+    accent: activeTheme.accent,
+    surface: activeTheme.surface,
+    cardBg: activeTheme.cardBg || activeTheme.surface,
+    background: activeTheme.background,
+    text: activeTheme.text,
+    textMuted: activeTheme.textMuted,
+    border: activeTheme.border,
+    buttonPrimary: activeTheme.buttonPrimary || activeTheme.primary,
+    buttonSecondary: activeTheme.buttonSecondary || activeTheme.secondary,
+    radius: activeTheme.radius || '8px',
+    density: activeTheme.density || repaired.layout?.density || 'comfortable',
+    fontFamily: activeTheme.fontFamily || 'Plus Jakarta Sans, Inter, sans-serif'
   };
 
   // 4. Validate / Repair Navigation
@@ -285,9 +300,9 @@ export function validateAndRepairUiSpecification(spec, fallbackThemeId = 'enterp
 /**
  * Creates a domain-tailored default UI specification based on business context.
  */
-export function createDefaultUiSpecification(screenName = 'Enterprise System', domain = 'GENERAL_ENTERPRISE', themeId = 'enterprise-slate', screenType = null) {
+export function createDefaultUiSpecification(screenName = 'Enterprise System', domain = 'GENERAL_ENTERPRISE', themeId = 'warm-cream', screenType = null) {
   const normName = (screenName || '').toLowerCase();
-  const theme = THEME_ARCHETYPES[themeId] || THEME_ARCHETYPES['enterprise-slate'];
+  const theme = THEME_ARCHETYPES[themeId] || THEME_ARCHETYPES['warm-cream'];
 
   // 1. Dedicated Screen-Type Routing
   if (screenType === 'workflow' || screenType === 'queue' || /queue|ticket|booking|issue|workflow|triage|console|resolution/i.test(normName)) {
@@ -330,7 +345,7 @@ export function createDefaultUiSpecification(screenName = 'Enterprise System', d
 // DOMAIN-SPECIFIC SPECIFICATION GENERATORS
 // ---------------------------------------------------------------------------
 
-export function createHealthcareUiSpecification(businessName = 'CareFlow Clinical Hub', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createHealthcareUiSpecification(businessName = 'CareFlow Clinical Hub', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-healthcare-dashboard',
@@ -462,7 +477,7 @@ export function createHealthcareUiSpecification(businessName = 'CareFlow Clinica
   };
 }
 
-export function createLogisticsUiSpecification(businessName = 'FleetRoute Global Logistics', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createLogisticsUiSpecification(businessName = 'FleetRoute Global Logistics', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-logistics-dashboard',
@@ -593,7 +608,7 @@ export function createLogisticsUiSpecification(businessName = 'FleetRoute Global
   };
 }
 
-export function createFinanceUiSpecification(businessName = 'FinEdge Core Banking', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createFinanceUiSpecification(businessName = 'FinEdge Core Banking', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-finance-dashboard',
@@ -852,7 +867,7 @@ export function createCybersecurityUiSpecification(businessName = 'SOC Defender 
   };
 }
 
-export function createRetailUiSpecification(businessName = 'OmniStore Retail Hub', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createRetailUiSpecification(businessName = 'OmniStore Retail Hub', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-retail-dashboard',
@@ -1082,7 +1097,7 @@ export function createSaaSManagementUiSpecification(businessName = 'CloudScale S
   };
 }
 
-export function createGeneralEnterpriseUiSpecification(businessName = 'Operations Workspace', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createGeneralEnterpriseUiSpecification(businessName = 'Operations Workspace', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-general-dashboard',
@@ -1211,7 +1226,7 @@ export function createGeneralEnterpriseUiSpecification(businessName = 'Operation
   };
 }
 
-export function createWorkflowQueueUiSpecification(screenName = 'Commercial Ticket Booking & Issue Resolution Console', domain = 'ENTERPRISE', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createWorkflowQueueUiSpecification(screenName = 'Commercial Ticket Booking & Issue Resolution Console', domain = 'ENTERPRISE', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-ticket-workflow',
@@ -1341,7 +1356,7 @@ export function createWorkflowQueueUiSpecification(screenName = 'Commercial Tick
   };
 }
 
-export function createRulesPolicyUiSpecification(screenName = 'Booking Rules & Policy Manager', domain = 'ENTERPRISE', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createRulesPolicyUiSpecification(screenName = 'Booking Rules & Policy Manager', domain = 'ENTERPRISE', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-rules-manager',
@@ -1471,7 +1486,7 @@ export function createRulesPolicyUiSpecification(screenName = 'Booking Rules & P
   };
 }
 
-export function createAnalyticsUiSpecification(screenName = 'Throughput & Performance Analytics Console', domain = 'ENTERPRISE', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createAnalyticsUiSpecification(screenName = 'Throughput & Performance Analytics Console', domain = 'ENTERPRISE', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-analytics-console',
@@ -1583,7 +1598,7 @@ export function createAnalyticsUiSpecification(screenName = 'Throughput & Perfor
   };
 }
 
-export function createRestaurantUiSpecification(businessName = 'Gourmet Kitchen & Dining', theme = THEME_ARCHETYPES['enterprise-slate']) {
+export function createRestaurantUiSpecification(businessName = 'Gourmet Kitchen & Dining', theme = THEME_ARCHETYPES['warm-cream']) {
   return {
     page: {
       id: 'screen-restaurant-dashboard',

@@ -20,13 +20,20 @@ import {
   Clock,
   History,
   Plus,
-  Loader2
+  Loader2,
+  Square
 } from 'lucide-react';
 import { AssistantWelcomeCard } from '../../components/ai/AssistantWelcomeCard';
 import { isInitialWelcomeMessage, renderFormattedText } from '../../components/ai/chatTextFormatter';
 import { StructuredConsultantCard } from '../../components/ai/StructuredConsultantCard';
 import { useChatTranslation } from '../../hooks/useChatTranslation';
 import { ChatVoiceInput, ChatMessageSpeaker, speechManager } from '../../components/ai/ChatVoiceControl';
+import { VoiceDiscoveryPanel } from '../../components/voice/VoiceDiscoveryPanel';
+import {
+  LANGUAGE_OPTIONS,
+  LANGUAGE_DISPLAY_MAP,
+  resolveConversationalLanguage
+} from '../../utils/languageDetector';
 
 function formatRelativeDate(dateString, t) {
   if (!dateString) return t ? (t('chat.justNow') || 'Just now') : 'Just now';
@@ -51,18 +58,25 @@ export const DiscoveryPage = () => {
   const { lang, t } = useLanguage();
 
   const [workspace, setWorkspace] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [messagesByChat, setMessagesByChat] = useState({});
+  const [sendingByChat, setSendingByChat] = useState({});
+  const [errorByChat, setErrorByChat] = useState({});
   const [sessions, setSessions] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
   const [input, setInput] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('auto'); // 'auto' | 11 language codes
+  const [detectedVoiceLanguage, setDetectedVoiceLanguage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sending, setSending] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [showSessionMenu, setShowSessionMenu] = useState(false);
   const chatBottomRef = useRef(null);
+  const abortControllersRef = useRef({});
+
+  const messages = activeChatId ? (messagesByChat[activeChatId] || []) : [];
+  const isCurrentChatSending = Boolean(activeChatId && sendingByChat[activeChatId]);
 
   // Presentation translation layer
   const { translating, getTranslatedContent, getTranslatedStructured } = useChatTranslation(id, messages, lang);
@@ -74,7 +88,9 @@ export const DiscoveryPage = () => {
       setLoading(true);
       setError(null);
       // Clear previous messages immediately on workspace change (Zero Leakage)
-      setMessages([]);
+      setMessagesByChat({});
+      setSendingByChat({});
+      setErrorByChat({});
       setSessions([]);
       setActiveChatId(null);
 
@@ -86,13 +102,15 @@ export const DiscoveryPage = () => {
       );
       setSessions(sortedSessions);
       if (res.conversation) {
-        setActiveChatId(res.conversation.id);
-        setMessages(res.conversation.messages || []);
+        const initialId = res.conversation.id;
+        setActiveChatId(initialId);
+        setMessagesByChat({ [initialId]: res.conversation.messages || [] });
       } else if (sortedSessions.length > 0) {
-        setActiveChatId(sortedSessions[0].id);
-        const msgsRes = await api.getChatMessages(id, sortedSessions[0].id);
+        const firstId = sortedSessions[0].id;
+        setActiveChatId(firstId);
+        const msgsRes = await api.getChatMessages(id, firstId);
         if (msgsRes.session) {
-          setMessages(msgsRes.session.messages || []);
+          setMessagesByChat({ [firstId]: msgsRes.session.messages || [] });
         }
       }
       setSuggestedQuestions(res.suggestedQuestions || []);
@@ -109,28 +127,38 @@ export const DiscoveryPage = () => {
     loadDiscovery();
     return () => {
       speechManager.stop();
+      // Abort any ongoing requests on unmount
+      Object.values(abortControllersRef.current).forEach(ctrl => {
+        try { ctrl.abort(); } catch {}
+      });
+      abortControllersRef.current = {};
     };
   }, [loadDiscovery]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, sending]);
+  }, [messages, isCurrentChatSending]);
 
   // Handle switching to another existing chat session
   const handleSelectSession = async (chatId) => {
     if (chatId === activeChatId || loadingMessages) return;
     speechManager.stop();
-    try {
-      setLoadingMessages(true);
-      setActiveChatId(chatId);
-      const res = await api.getChatMessages(id, chatId);
-      if (res.session) {
-        setMessages(res.session.messages || []);
+    setActiveChatId(chatId);
+    if (!messagesByChat[chatId]) {
+      try {
+        setLoadingMessages(true);
+        const res = await api.getChatMessages(id, chatId);
+        if (res.session) {
+          setMessagesByChat(prev => ({
+            ...prev,
+            [chatId]: res.session.messages || []
+          }));
+        }
+      } catch (err) {
+        showToast('Failed to switch chat session', 'error');
+      } finally {
+        setLoadingMessages(false);
       }
-    } catch (err) {
-      showToast('Failed to switch chat session', 'error');
-    } finally {
-      setLoadingMessages(false);
     }
   };
 
@@ -143,18 +171,22 @@ export const DiscoveryPage = () => {
       const res = await api.createChatSession(id, 'discovery');
       const newSession = res.session;
       if (newSession) {
-        setActiveChatId(newSession.id);
-        setMessages(newSession.messages || []);
+        const newId = newSession.id;
+        setActiveChatId(newId);
+        setMessagesByChat(prev => ({
+          ...prev,
+          [newId]: newSession.messages || []
+        }));
         setSessions(prev => {
           const newEntry = {
-            id: newSession.id,
+            id: newId,
             title: newSession.title,
             stage: 'discovery',
             createdAt: newSession.createdAt,
             lastMessageAt: newSession.lastMessageAt,
             messageCount: (newSession.messages || []).length
           };
-          const updated = [newEntry, ...prev.filter(s => s.id !== newSession.id)];
+          const updated = [newEntry, ...prev.filter(s => s.id !== newId)];
           return updated.sort((a, b) => 
             new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime()
           );
@@ -168,70 +200,197 @@ export const DiscoveryPage = () => {
     }
   };
 
-  const handleSendMessage = async (customText, messageLanguage = null) => {
-    const textToSend = customText || input;
-    if (!textToSend.trim() || sending) return;
+  // Cancel message generation for a specific chat session
+  const handleCancelMessage = (chatId) => {
+    const targetChatId = chatId || activeChatId;
+    if (!targetChatId) return;
 
-    const effectiveLang = messageLanguage || lang;
+    if (abortControllersRef.current[targetChatId]) {
+      try {
+        abortControllersRef.current[targetChatId].abort();
+      } catch (err) {
+        console.warn('AbortController error:', err);
+      }
+      delete abortControllersRef.current[targetChatId];
+    }
+
+    setSendingByChat(prev => ({ ...prev, [targetChatId]: false }));
+    showToast('AI response generation stopped', 'info');
+  };
+
+  const handleSendMessage = async (customText = null, messageLanguage = null, forcedDetectedLang = null, inputType = 'text') => {
+    const textToSend = customText || input;
+    if (!textToSend || !textToSend.trim() || isCurrentChatSending) return;
+
+    const chosenLang = messageLanguage || selectedLanguage;
+    const effectiveLang = chosenLang === 'auto' ? 'auto' : chosenLang;
+    const detectedLang = forcedDetectedLang || resolveConversationalLanguage(textToSend.trim(), effectiveLang === 'auto' ? lang : effectiveLang);
+    const targetChatId = activeChatId;
 
     const optimisticUserMsg = {
-      id: `temp_${Date.now()}`,
+      id: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       role: 'user',
       content: textToSend.trim(),
+      detectedLanguage: detectedLang,
+      inputType,
       createdAt: new Date().toISOString()
     };
 
+    const optimisticAssistantMsg = {
+      id: `stream_temp_${Date.now()}`,
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      detectedLanguage: detectedLang,
+      responseLanguage: detectedLang,
+      createdAt: new Date().toISOString()
+    };
+
+    const clientRequestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const abortController = new AbortController();
+    if (targetChatId) {
+      abortControllersRef.current[targetChatId] = abortController;
+      setSendingByChat(prev => ({ ...prev, [targetChatId]: true }));
+      setErrorByChat(prev => ({ ...prev, [targetChatId]: null }));
+    }
+
+    setInput('');
+    setDetectedVoiceLanguage(null);
+    if (targetChatId) {
+      setMessagesByChat(prev => ({
+        ...prev,
+        [targetChatId]: [...(prev[targetChatId] || []), optimisticUserMsg, optimisticAssistantMsg]
+      }));
+    }
+
     try {
-      setSending(true);
-      setInput('');
-      setMessages((prev) => [...prev, optimisticUserMsg]);
+      const onChunk = ({ delta, text, structured }) => {
+        if (!targetChatId) return;
+        setMessagesByChat(prev => {
+          const currentMsgs = prev[targetChatId] || [];
+          const updated = currentMsgs.map(m => {
+            if (m.id === optimisticAssistantMsg.id) {
+              return {
+                ...m,
+                content: text || m.content,
+                structured: structured || m.structured || null,
+                isStreaming: true,
+                detectedLanguage: detectedLang,
+                responseLanguage: detectedLang
+              };
+            }
+            return m;
+          });
+          return {
+            ...prev,
+            [targetChatId]: updated
+          };
+        });
+      };
 
-      // Send to active chat session
-      const clientRequestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const res = await api.sendDiscoveryMessage(id, textToSend.trim(), activeChatId, clientRequestId, effectiveLang, lang);
+      // Send to active chat session with abort signal, streaming onChunk, and dynamic language detection
+      const res = await api.sendDiscoveryMessage(
+        id,
+        textToSend.trim(),
+        targetChatId,
+        clientRequestId,
+        effectiveLang,
+        lang,
+        {
+          signal: abortController.signal,
+          onChunk,
+          detectedLanguage: detectedLang,
+          inputType
+        }
+      );
 
-      setMessages((prev) => {
-        const withoutTemp = prev.filter(m => m.id !== optimisticUserMsg.id);
-        return [...withoutTemp, res.userMessage, res.assistantMessage];
-      });
-
-      // Update session title and lastMessageAt in sessions list
-      const resolvedChatId = activeChatId || res.userMessage?.conversationId;
+      const resolvedChatId = targetChatId || res.userMessage?.conversationId;
       if (resolvedChatId && !activeChatId) {
         setActiveChatId(resolvedChatId);
       }
 
-      setSessions(prev => {
-        const targetId = resolvedChatId || activeChatId;
-        const exists = prev.some(s => s.id === targetId);
-        if (!exists && targetId) {
-          const newEntry = {
-            id: targetId,
-            title: res.sessionTitle || textToSend.slice(0, 32),
-            stage: 'discovery',
-            createdAt: new Date().toISOString(),
-            lastMessageAt: new Date().toISOString(),
-            messageCount: 2
+      if (resolvedChatId) {
+        setMessagesByChat(prev => {
+          const currentMsgs = prev[resolvedChatId] || [];
+          const withoutTemp = currentMsgs.filter(
+            m => m.id !== optimisticUserMsg.id && m.id !== optimisticAssistantMsg.id
+          );
+          return {
+            ...prev,
+            [resolvedChatId]: [...withoutTemp, res.userMessage, res.assistantMessage]
           };
-          return [newEntry, ...prev];
-        }
-        return prev.map(s => {
-          if (s.id === targetId) {
-            return {
-              ...s,
-              title: res.sessionTitle || s.title,
+        });
+
+        setSessions(prev => {
+          const exists = prev.some(s => s.id === resolvedChatId);
+          if (!exists) {
+            const newEntry = {
+              id: resolvedChatId,
+              title: res.sessionTitle || textToSend.slice(0, 32),
+              stage: 'discovery',
+              createdAt: new Date().toISOString(),
               lastMessageAt: new Date().toISOString(),
-              messageCount: (s.messageCount || 0) + 2
+              messageCount: 2
             };
+            return [newEntry, ...prev];
           }
-          return s;
-        }).sort((a, b) => new Date(b.lastMessageAt || b.createdAt) - new Date(a.lastMessageAt || a.createdAt));
-      });
+          return prev.map(s => {
+            if (s.id === resolvedChatId) {
+              return {
+                ...s,
+                title: res.sessionTitle || s.title,
+                lastMessageAt: new Date().toISOString(),
+                messageCount: (s.messageCount || 0) + 2
+              };
+            }
+            return s;
+          }).sort((a, b) => new Date(b.lastMessageAt || b.createdAt) - new Date(a.lastMessageAt || a.createdAt));
+        });
+      }
     } catch (err) {
-      setMessages((prev) => prev.filter(m => m.id !== optimisticUserMsg.id));
-      showToast(err.message || 'Failed to send message', 'error');
+      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        console.log(`[Discovery] Request aborted for chat ${targetChatId}`);
+        if (targetChatId) {
+          setMessagesByChat(prev => ({
+            ...prev,
+            [targetChatId]: (prev[targetChatId] || []).map(m => {
+              if (m.id === optimisticAssistantMsg.id) {
+                return {
+                  ...m,
+                  isStreaming: false,
+                  isCancelled: true,
+                  content: m.content || 'Response generation stopped.'
+                };
+              }
+              return m;
+            })
+          }));
+        }
+      } else {
+        if (targetChatId) {
+          setMessagesByChat(prev => ({
+            ...prev,
+            [targetChatId]: (prev[targetChatId] || []).map(m => {
+              if (m.id === optimisticAssistantMsg.id) {
+                return {
+                  ...m,
+                  isStreaming: false,
+                  isFailed: true,
+                  content: m.content ? `${m.content}\n\n*(Connection interrupted)*` : ''
+                };
+              }
+              return m;
+            }).filter(m => m.id !== optimisticAssistantMsg.id || m.content)
+          }));
+          setErrorByChat(prev => ({ ...prev, [targetChatId]: err.message || 'Failed to send message' }));
+        }
+        showToast(err.message || 'Failed to send message', 'error');
+      }
     } finally {
-      setSending(false);
+      if (targetChatId) {
+        setSendingByChat(prev => ({ ...prev, [targetChatId]: false }));
+        delete abortControllersRef.current[targetChatId];
+      }
     }
   };
 
@@ -358,6 +517,9 @@ export const DiscoveryPage = () => {
           </div>
         </div>
 
+        {/* Twilio Voice Discovery Phase 1 Status Panel */}
+        <VoiceDiscoveryPanel workspaceId={id} />
+
         {/* Discovery Prompts Guidance */}
         <div className="card" style={{ flex: 1, padding: 18, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
@@ -383,7 +545,7 @@ export const DiscoveryPage = () => {
                 <button
                   key={idx}
                   onClick={() => handleSendMessage(qText)}
-                  disabled={sending}
+                  disabled={isCurrentChatSending}
                   style={{
                     textAlign: 'left',
                     padding: '10px 12px',
@@ -540,6 +702,8 @@ export const DiscoveryPage = () => {
                       .sort((a, b) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime())
                       .map((s) => {
                         const isActive = s.id === activeChatId;
+                        const isSessGenerating = Boolean(sendingByChat[s.id]);
+                        const isSessError = Boolean(errorByChat[s.id]);
                         const count = s.messageCount || 0;
                         const messageLabel = count === 1 ? (1 + ' ' + (t('chat.messageCountSingle') || 'message')) : (count + ' ' + (t('chat.messagesCount') || 'messages'));
                         return (
@@ -569,9 +733,30 @@ export const DiscoveryPage = () => {
                                 color: isActive ? 'var(--accent-amber-text)' : 'var(--text-primary)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+                                whiteSpace: 'nowrap',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6
                               }}>
-                                {s.title}
+                                <span>{s.title}</span>
+                                {isSessGenerating && (
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    color: 'var(--accent-amber)',
+                                    fontWeight: 700,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3
+                                  }}>
+                                    <Loader2 size={10} className="animate-spin" />
+                                    <span>Thinking...</span>
+                                  </span>
+                                )}
+                                {isSessError && (
+                                  <span style={{ fontSize: '0.65rem', color: '#EF4444', fontWeight: 700 }}>
+                                    ! Error
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
                                 {formatRelativeDate(s.lastMessageAt || s.createdAt, t)} • {messageLabel}
@@ -701,7 +886,7 @@ export const DiscoveryPage = () => {
                               {m.suggestedAction} <ArrowRight size={13} />
                             </button>
                           ) : <div />}
-                          {!structuredData && <ChatMessageSpeaker messageId={`msg_${m.id}`} text={translatedContent} lang={lang} />}
+                          {!structuredData && <ChatMessageSpeaker messageId={`msg_${m.id}`} text={translatedContent} lang={m.responseLanguage || m.detectedLanguage || lang} />}
                         </div>
                       )}
                     </div>
@@ -726,10 +911,39 @@ export const DiscoveryPage = () => {
             );
           }))}
 
-          {sending && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              <Sparkles size={16} color="var(--accent-amber)" />
-              <span>{t('chat.thinking') || 'Synthesizing enterprise constraints and advice...'}</span>
+          {isCurrentChatSending && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              borderRadius: 8,
+              backgroundColor: 'var(--accent-amber-light, rgba(217, 119, 6, 0.08))',
+              border: '1px solid rgba(217, 119, 6, 0.2)',
+              color: 'var(--text-primary)',
+              fontSize: '0.84rem'
+            }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <Sparkles size={16} color="var(--accent-amber)" className="animate-spin" />
+                <span>{t('chat.thinking') || 'Synthesizing enterprise constraints and advice...'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCancelMessage(activeChatId)}
+                className="btn btn-secondary btn-sm"
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '0.72rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  borderColor: '#EF4444',
+                  color: '#EF4444'
+                }}
+              >
+                <Square size={10} fill="#EF4444" />
+                <span>{t('common.stop') || 'Stop'}</span>
+              </button>
             </div>
           )}
 
@@ -737,7 +951,61 @@ export const DiscoveryPage = () => {
         </div>
 
         {/* Input Bar */}
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}>
+        <div style={{ padding: '10px 16px 12px', borderTop: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}>
+          {/* Language Selector + Live Detection Badge Toolbar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, padding: '0 4px', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <label htmlFor="discovery-lang-select" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                {t('chat.language') || 'Language'}:
+              </label>
+              <select
+                id="discovery-lang-select"
+                value={selectedLanguage}
+                onChange={(e) => setSelectedLanguage(e.target.value)}
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  backgroundColor: 'var(--bg-subtle, #1E232D)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-medium)',
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+              >
+                {LANGUAGE_OPTIONS.map((opt) => (
+                  <option key={opt.code} value={opt.code}>
+                    {opt.flag} {opt.label} {opt.native !== opt.label ? `(${opt.native})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {input.trim() && (
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  backgroundColor: 'rgba(217, 119, 6, 0.12)',
+                  color: 'var(--accent-amber-text, #D97706)',
+                  border: '1px solid rgba(217, 119, 6, 0.25)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+              >
+                <Sparkles size={10} color="var(--accent-amber)" />
+                <span>
+                  {selectedLanguage !== 'auto'
+                    ? `Forced: ${LANGUAGE_DISPLAY_MAP[selectedLanguage] || selectedLanguage}`
+                    : `Detected: ${LANGUAGE_DISPLAY_MAP[detectedVoiceLanguage || resolveConversationalLanguage(input, lang)] || 'English'}`}
+                </span>
+              </span>
+            )}
+          </div>
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -750,31 +1018,57 @@ export const DiscoveryPage = () => {
               placeholder={t('chat.placeholder') || t.discovery?.placeholder || "Ask the AI Consultant or describe system constraints..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={sending}
+              disabled={isCurrentChatSending}
               className="form-input"
               style={{ fontSize: '0.9rem', padding: '10px 14px', flex: 1, minWidth: 0, minHeight: 44 }}
             />
             <ChatVoiceInput
-              lang={lang}
+              lang={selectedLanguage === 'auto' ? 'auto' : selectedLanguage}
               workspaceId={id}
               sessionId={activeChatId}
               onInterimPreview={(previewText) => {
                 setInput(previewText);
               }}
-              onFinalTranscript={(finalSpokenText) => {
+              onFinalTranscript={(finalSpokenText, detectedLang) => {
                 setInput(finalSpokenText);
+                if (detectedLang && selectedLanguage === 'auto') {
+                  setDetectedVoiceLanguage(detectedLang);
+                }
               }}
-              disabled={sending}
+              disabled={isCurrentChatSending}
             />
-            <button
-              type="submit"
-              disabled={!input.trim() || sending}
-              className="btn btn-primary"
-              style={{ padding: '0 16px', minHeight: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexShrink: 0 }}
-            >
-              <Send size={16} />
-              <span className="hide-on-mobile">{t('chat.send') || t.discovery?.send || 'Send'}</span>
-            </button>
+            {isCurrentChatSending ? (
+              <button
+                type="button"
+                onClick={() => handleCancelMessage(activeChatId)}
+                className="btn btn-secondary"
+                style={{
+                  padding: '0 16px',
+                  minHeight: 44,
+                  minWidth: 44,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  flexShrink: 0,
+                  borderColor: '#EF4444',
+                  color: '#EF4444'
+                }}
+              >
+                <Square size={14} fill="#EF4444" />
+                <span className="hide-on-mobile">{t('common.stop') || 'Stop'}</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim() || isCurrentChatSending}
+                className="btn btn-primary"
+                style={{ padding: '0 16px', minHeight: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexShrink: 0 }}
+              >
+                <Send size={16} />
+                <span className="hide-on-mobile">{t('chat.send') || t.discovery?.send || 'Send'}</span>
+              </button>
+            )}
           </form>
         </div>
       </div>

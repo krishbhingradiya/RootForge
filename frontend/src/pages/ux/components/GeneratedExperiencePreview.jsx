@@ -29,15 +29,17 @@ import { CustomScreenView } from './CustomScreenView';
 import { BlueprintRenderer } from './BlueprintRenderer';
 import { WireframeRenderer } from './WireframeRenderer';
 
-function buildScreenSpecification(screen, activeThemeId, domain, allScreens = []) {
+function buildScreenSpecification(screen, activeThemeId = 'warm-cream', domain, allScreens = []) {
   if (!screen) return null;
-  const activeTheme = THEME_ARCHETYPES[activeThemeId] || THEME_ARCHETYPES['enterprise-slate'];
+  const targetThemeId = activeThemeId || 'warm-cream';
+  const activeTheme = THEME_ARCHETYPES[targetThemeId] || THEME_ARCHETYPES['warm-cream'];
   
   // Check if screen has a unique, dedicated uiSpecification
   const hasDedicatedSpec = screen.uiSpecification && screen.uiSpecification.components && screen.uiSpecification.components.length > 0;
 
   if (hasDedicatedSpec) {
-    const { repairedSpec } = validateAndRepairUiSpecification(screen.uiSpecification, activeThemeId);
+    const { repairedSpec } = validateAndRepairUiSpecification(screen.uiSpecification, targetThemeId);
+    repairedSpec.theme = { ...activeTheme };
     return repairedSpec;
   }
 
@@ -78,15 +80,17 @@ function buildScreenSpecification(screen, activeThemeId, domain, allScreens = []
         { breakpoint: 'mobile', rules: { columns: 1, hideSidebar: false, stackCards: true } }
       ]
     };
-    const { repairedSpec } = validateAndRepairUiSpecification(spec, activeThemeId);
+    const { repairedSpec } = validateAndRepairUiSpecification(spec, targetThemeId);
+    repairedSpec.theme = { ...activeTheme };
     return repairedSpec;
   }
 
   // Generate distinct specification by screen name and type
-  const fallback = createDefaultUiSpecification(screen.name, domain, activeThemeId, screen.layoutType || screen.type);
+  const fallback = createDefaultUiSpecification(screen.name, domain, targetThemeId, screen.layoutType || screen.type);
   fallback.page.id = screen.id;
   fallback.page.name = screen.name;
   if (screen.description) fallback.page.purpose = screen.description;
+  fallback.theme = { ...activeTheme };
   return fallback;
 }
 
@@ -291,7 +295,7 @@ export const GeneratedExperiencePreview = ({
   };
 
   const isLight = activeArchetype.mode === 'light' || activeArchetype.id === 'warm-cream';
-  const browserChromeBg = isLight ? '#F5EFE6' : (activeArchetype.cardBg || '#111827');
+  const browserChromeBg = isLight ? '#F1E9DD' : (activeArchetype.cardBg || '#111827');
 
   return (
     <div className="ux-canvas-area">
@@ -300,10 +304,10 @@ export const GeneratedExperiencePreview = ({
         className={`${frameClass} ux-themed-frame`}
         style={{
           ...themeCssVariables,
-          backgroundColor: currentTheme.background || activeArchetype.bgPrimary || '#0F172A',
-          color: currentTheme.text || activeArchetype.textPrimary || '#F8FAFC',
+          backgroundColor: currentTheme.background || activeArchetype.bgPrimary || (isLight ? '#F6F1E8' : '#0F172A'),
+          color: currentTheme.text || activeArchetype.textPrimary || (isLight ? '#29231F' : '#F8FAFC'),
           transition: 'background-color 0.4s ease, color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease',
-          borderColor: isMobile ? '#1E232D' : (currentTheme.border || activeArchetype.border || (isLight ? 'rgba(28, 25, 23, 0.12)' : 'rgba(255,255,255,0.08)'))
+          borderColor: isMobile ? '#1E232D' : (currentTheme.border || activeArchetype.border || (isLight ? '#D8CCBC' : 'rgba(255,255,255,0.08)'))
         }}
       >
         {/* TOP BAR: True Smartphone Status Bar vs Desktop Browser Header */}
@@ -420,7 +424,7 @@ export const GeneratedExperiencePreview = ({
             className="ux-browser-header"
             style={{
               backgroundColor: browserChromeBg,
-              borderBottom: `1px solid ${activeArchetype.border || (isLight ? 'rgba(28, 25, 23, 0.1)' : 'rgba(255,255,255,0.08)')}`,
+              borderBottom: `1px solid ${isLight ? '#D8CCBC' : (activeArchetype.border || 'rgba(255,255,255,0.08)')}`,
               transition: 'background-color 0.4s ease, border-color 0.35s ease'
             }}
           >
@@ -433,9 +437,9 @@ export const GeneratedExperiencePreview = ({
             <div
               className="ux-url-bar"
               style={{
-                backgroundColor: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.1)',
-                color: isLight ? '#57534E' : '#CBD5E1',
-                border: isLight ? '1px solid rgba(0, 0, 0, 0.08)' : '1px solid transparent',
+                backgroundColor: isLight ? '#FFFDF8' : 'rgba(255, 255, 255, 0.1)',
+                color: isLight ? '#29231F' : '#CBD5E1',
+                border: isLight ? '1px solid #D8CCBC' : '1px solid transparent',
                 transition: 'all 0.3s ease'
               }}
             >
@@ -443,7 +447,7 @@ export const GeneratedExperiencePreview = ({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem' }}>
-              <span style={{ fontWeight: 600, color: activeArchetype.textPrimary || '#F8FAFC', transition: 'color 0.3s ease' }}>
+              <span style={{ fontWeight: 600, color: isLight ? '#29231F' : (activeArchetype.textPrimary || '#F8FAFC'), transition: 'color 0.3s ease' }}>
                 {currentScreen.name}
               </span>
               <span
@@ -451,8 +455,8 @@ export const GeneratedExperiencePreview = ({
                   fontSize: '0.65rem',
                   padding: '1px 6px',
                   borderRadius: 4,
-                  backgroundColor: activeArchetype.badgeBg || 'rgba(217, 119, 6, 0.15)',
-                  color: activeArchetype.accentColor || '#D97706',
+                  backgroundColor: isLight ? 'rgba(139, 69, 19, 0.1)' : (activeArchetype.badgeBg || 'rgba(217, 119, 6, 0.15)'),
+                  color: isLight ? '#8B4513' : (activeArchetype.accentColor || '#D97706'),
                   fontWeight: 700,
                   transition: 'background-color 0.35s ease, color 0.35s ease'
                 }}

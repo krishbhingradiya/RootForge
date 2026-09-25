@@ -1,6 +1,20 @@
 import { prisma } from '../prisma.js';
 import { HttpError } from './authorization.service.js';
 
+// High-performance in-memory cache for static workspace metadata (45s TTL)
+const staticContextCache = new Map();
+// Cache for chunked documents by documentId + updatedAt
+const docChunksCache = new Map();
+
+/**
+ * Invalidates cached context for a workspace when mutations occur.
+ */
+export function invalidateWorkspaceContext(workspaceId) {
+  if (workspaceId) {
+    staticContextCache.delete(workspaceId);
+  }
+}
+
 /**
  * Safely parse JSON strings with a default fallback
  */
@@ -39,6 +53,11 @@ export function chunkDocument(doc, targetChunkSize = 1200, overlap = 150) {
   if (!rawText) return [];
 
   const filename = doc.originalName || doc.filename || 'Document';
+  const docCacheKey = `${doc.id || filename}_${doc.updatedAt || doc.createdAt || rawText.length}`;
+  if (docChunksCache.has(docCacheKey)) {
+    return docChunksCache.get(docCacheKey);
+  }
+
   const purpose = inferDocPurpose(filename);
   const chunks = [];
 
@@ -102,6 +121,7 @@ export function chunkDocument(doc, targetChunkSize = 1200, overlap = 150) {
     }
   }
 
+  docChunksCache.set(docCacheKey, chunks);
   return chunks;
 }
 
@@ -603,40 +623,55 @@ export async function getWorkspaceContext(workspaceId, user = null, options = {}
     throw new Error('workspaceId is required to assemble workspace context');
   }
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    include: {
-      organization: true,
-      createdBy: { select: { id: true, name: true, email: true, role: true } },
-      documents: { orderBy: { createdAt: 'desc' } },
-      conversations: {
-        where: { isArchived: false },
-        include: { messages: { orderBy: { createdAt: 'asc' } } },
-        orderBy: { lastMessageAt: 'desc' },
-        take: 50
-      },
-      businessAnalyses: { orderBy: { createdAt: 'desc' }, take: 1 },
-      solutions: { orderBy: { createdAt: 'desc' }, take: 1 },
-      architectures: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        include: { nodes: true, edges: true }
-      },
-      processes: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        include: { nodes: { orderBy: { stepOrder: 'asc' } } }
-      },
-      uxDesigns: { orderBy: { createdAt: 'desc' }, take: 1 },
-      databaseDesigns: { orderBy: { createdAt: 'desc' }, take: 1 },
-      apiDesigns: { orderBy: { createdAt: 'desc' }, take: 1 },
-      implementationPlans: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        include: { tasks: { orderBy: { sprint: 'asc' } } }
+  const now = Date.now();
+  const cachedEntry = staticContextCache.get(workspaceId);
+  let workspace = null;
+
+  if (cachedEntry && (now - cachedEntry.timestamp < 45000)) {
+    workspace = cachedEntry.workspace;
+  } else {
+    workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        organization: true,
+        createdBy: { select: { id: true, name: true, email: true, role: true } },
+        documents: { orderBy: { createdAt: 'desc' } },
+        conversations: {
+          where: { isArchived: false },
+          include: { messages: { orderBy: { createdAt: 'asc' }, take: 20 } },
+          orderBy: { lastMessageAt: 'desc' },
+          take: 10
+        },
+        businessAnalyses: { orderBy: { createdAt: 'desc' }, take: 1 },
+        solutions: { orderBy: { createdAt: 'desc' }, take: 1 },
+        architectures: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { nodes: true, edges: true }
+        },
+        processes: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { nodes: { orderBy: { stepOrder: 'asc' } } }
+        },
+        uxDesigns: { orderBy: { createdAt: 'desc' }, take: 1 },
+        databaseDesigns: { orderBy: { createdAt: 'desc' }, take: 1 },
+        apiDesigns: { orderBy: { createdAt: 'desc' }, take: 1 },
+        implementationPlans: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { tasks: { orderBy: { sprint: 'asc' } } }
+        }
       }
+    });
+
+    if (workspace) {
+      staticContextCache.set(workspaceId, {
+        workspace,
+        timestamp: now
+      });
     }
-  });
+  }
 
   if (!workspace) {
     throw new HttpError(404, 'Workspace not found.');

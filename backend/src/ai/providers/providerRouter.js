@@ -81,6 +81,38 @@ export class ProviderRouter {
   }
 
   /**
+   * Dispatches streaming chat completion to the active native provider adapter.
+   */
+  async streamChatCompletion(params = {}) {
+    const provider = this.getActiveProvider();
+    const providerName = this.getConfiguredProviderName();
+
+    if (providerName === 'demo') {
+      const err = new Error('streamChatCompletion called directly on DEMO provider.');
+      err.code = 'CONFIG_ERROR';
+      throw err;
+    }
+
+    if (providerName === 'gemini' && !params.apiKey) {
+      params.apiKey = geminiConfig.getApiKey();
+    }
+    if (providerName === 'gemini' && !params.model) {
+      params.model = geminiConfig.getModel();
+    }
+
+    if (typeof provider.streamChatCompletion === 'function') {
+      return await provider.streamChatCompletion(params);
+    }
+
+    // Fallback if provider doesn't support streaming
+    const res = await provider.generateChatCompletion(params);
+    if (typeof params.onChunk === 'function' && res.text) {
+      params.onChunk({ delta: res.text, accumulatedText: res.text });
+    }
+    return res;
+  }
+
+  /**
    * Dispatches non-destructive ping to test active provider connectivity.
    */
   async ping(params = {}) {

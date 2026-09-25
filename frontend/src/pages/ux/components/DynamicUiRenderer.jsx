@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
   Search,
@@ -37,7 +37,14 @@ import {
   Navigation,
   FileText,
   BarChart2,
-  PieChart
+  PieChart,
+  X,
+  Edit3,
+  Trash2,
+  Check,
+  Play,
+  Share2,
+  Info
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -71,18 +78,21 @@ const ICON_MAP = {
   Navigation,
   FileText,
   BarChart2,
-  PieChart
+  PieChart,
+  Play,
+  Share2,
+  Info
 };
 
 // ---------------------------------------------------------------------------
 // COLOR LUMINANCE & AUTOMATIC CONTRAST ENGINE
 // ---------------------------------------------------------------------------
 function parseHexOrRgb(color) {
-  if (!color || typeof color !== 'string') return [15, 23, 42];
+  if (!color || typeof color !== 'string') return [41, 35, 31];
   const trimmed = color.trim().toLowerCase();
   if (trimmed === 'white' || trimmed === '#fff' || trimmed === '#ffffff') return [255, 255, 255];
   if (trimmed === 'black' || trimmed === '#000' || trimmed === '#000000') return [0, 0, 0];
-  if (trimmed === 'transparent') return [15, 23, 42];
+  if (trimmed === 'transparent') return [246, 241, 232];
 
   if (trimmed.startsWith('#')) {
     let hex = trimmed.slice(1);
@@ -96,7 +106,7 @@ function parseHexOrRgb(color) {
   if (rgbMatch) {
     return [parseInt(rgbMatch[1], 10), parseInt(rgbMatch[2], 10), parseInt(rgbMatch[3], 10)];
   }
-  return [15, 23, 42];
+  return [41, 35, 31];
 }
 
 function getLuminance(color) {
@@ -120,7 +130,7 @@ export const DynamicUiRenderer = ({
 }) => {
   if (!specification) {
     return (
-      <div style={{ padding: '40px 20px', textAlign: 'center', color: '#64748B' }}>
+      <div style={{ padding: '40px 20px', textAlign: 'center', color: '#746B62' }}>
         <p>No UI specification available for rendering.</p>
       </div>
     );
@@ -128,21 +138,144 @@ export const DynamicUiRenderer = ({
 
   const { page = {}, layout = {}, theme = {}, navigation = [], components = [], actions = [] } = specification;
 
+  // ---------------------------------------------------------------------------
+  // INTERACTIVE APPLICATION DATA STORE
+  // ---------------------------------------------------------------------------
+  const initialTable = useMemo(() => {
+    const tableCmp = components.find(c => (c.type || '').includes('table'));
+    if (tableCmp?.props?.rows && Array.isArray(tableCmp.props.rows)) {
+      return tableCmp.props.rows.map((r, i) => ({ ...r, internalId: r.id || `rec-${i + 1}` }));
+    }
+    return [
+      { id: 'ITM-901', title: 'Automated Account Sync', category: 'Data Pipeline', priority: 'High', assignedActor: 'Sarah Jenkins', status: 'In Progress', actions: ['Open Details', 'Execute'] },
+      { id: 'ITM-902', title: 'SLA Exception Ingestion', category: 'Compliance', priority: 'Critical', assignedActor: 'Automated Bot', status: 'Awaiting Signoff', actions: ['Approve', 'Escalate'] },
+      { id: 'ITM-903', title: 'Daily Settlement Batch', category: 'Financial', priority: 'Medium', assignedActor: 'David Miller', status: 'Completed', actions: ['View Audit', 'Archive'] }
+    ];
+  }, [specification.page?.id]);
+
+  const [itemsList, setItemsList] = useState(initialTable);
+  useEffect(() => {
+    setItemsList(initialTable);
+  }, [initialTable]);
+
+  const [kanbanItems, setKanbanItems] = useState([
+    { id: 'kb-1', title: 'ITM-904: Cross-Border Geolocation Check', column: 'triage', priority: 'High' },
+    { id: 'kb-2', title: 'ITM-901: Automated Account Sync', column: 'processing', priority: 'High' },
+    { id: 'kb-3', title: 'ITM-903: Daily Settlement Batch', column: 'verified', priority: 'Medium' }
+  ]);
+
   // Local interaction states
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilterChip, setActiveFilterChip] = useState('All');
-  const [selectedRowId, setSelectedRowId] = useState(null);
+  const [selectedRow, setSelectedRow] = useState(null);
   const [activeTabId, setActiveTabId] = useState(navigation[0]?.id || 'nav-1');
   const [copilotActionNotice, setCopilotActionNotice] = useState(null);
   const [isCopilotExecuting, setIsCopilotExecuting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState('Just now');
+
+  // Modals & Drawers
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showRationaleModal, setShowRationaleModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  // New Item Form State
+  const [newItemForm, setNewItemForm] = useState({
+    title: '',
+    category: 'Operations',
+    priority: 'High',
+    assignedActor: 'Sarah Jenkins',
+    status: 'In Progress'
+  });
 
   const isMobile = deviceView === 'mobile';
   const isTablet = deviceView === 'tablet';
 
-  const handleAction = (label) => {
-    if (onTriggerAction) {
-      onTriggerAction(label || 'Executed action');
-    }
+  const triggerToast = (msg) => {
+    setToastMessage(msg);
+    if (onTriggerAction) onTriggerAction(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // ---------------------------------------------------------------------------
+  // CRUD & ACTION DISPATCHERS
+  // ---------------------------------------------------------------------------
+  const handleCreateWorkItem = (e) => {
+    e.preventDefault();
+    if (!newItemForm.title.trim()) return;
+
+    const newId = `ITM-${Math.floor(100 + Math.random() * 900)}`;
+    const createdItem = {
+      id: newId,
+      title: newItemForm.title.trim(),
+      category: newItemForm.category,
+      priority: newItemForm.priority,
+      assignedActor: newItemForm.assignedActor,
+      status: newItemForm.status,
+      actions: ['Open Details', 'Execute']
+    };
+
+    setItemsList((prev) => [createdItem, ...prev]);
+    setKanbanItems((prev) => [
+      { id: `kb-${Date.now()}`, title: `${newId}: ${createdItem.title}`, column: 'triage', priority: createdItem.priority },
+      ...prev
+    ]);
+    setShowAddModal(false);
+    setNewItemForm({ title: '', category: 'Operations', priority: 'High', assignedActor: 'Sarah Jenkins', status: 'In Progress' });
+    triggerToast(`Created Work Item: ${newId}`);
+  };
+
+  const handleApprove = (rowId) => {
+    setItemsList((prev) =>
+      prev.map((item) => (item.id === rowId ? { ...item, status: 'Completed' } : item))
+    );
+    setKanbanItems((prev) =>
+      prev.map((k) => (k.title.includes(rowId) ? { ...k, column: 'verified' } : k))
+    );
+    triggerToast(`Approved & Verified: ${rowId}`);
+  };
+
+  const handleEscalate = (rowId) => {
+    setItemsList((prev) =>
+      prev.map((item) => (item.id === rowId ? { ...item, priority: 'Critical', status: 'Escalated' } : item))
+    );
+    triggerToast(`Escalated to Tier 2 Lead: ${rowId}`);
+  };
+
+  const handleExecute = (rowId) => {
+    setItemsList((prev) =>
+      prev.map((item) => (item.id === rowId ? { ...item, status: 'In Progress' } : item))
+    );
+    setKanbanItems((prev) =>
+      prev.map((k) => (k.title.includes(rowId) ? { ...k, column: 'processing' } : k))
+    );
+    triggerToast(`Executed Resolution on ${rowId}`);
+  };
+
+  const handleArchive = (rowId) => {
+    setItemsList((prev) => prev.filter((item) => item.id !== rowId));
+    setKanbanItems((prev) => prev.filter((k) => !k.title.includes(rowId)));
+    triggerToast(`Archived Record: ${rowId}`);
+  };
+
+  const handleSync = () => {
+    setIsSyncing(true);
+    setTimeout(() => {
+      setIsSyncing(false);
+      setLastSyncTime('Just now');
+      triggerToast('Synced telemetry and live queue');
+    }, 600);
+  };
+
+  const handleBatchRun = () => {
+    setItemsList((prev) =>
+      prev.map((item) => ({ ...item, status: 'Completed' }))
+    );
+    setKanbanItems((prev) =>
+      prev.map((k) => ({ ...k, column: 'verified' }))
+    );
+    triggerToast('Batch Run executed: all active items resolved');
   };
 
   const handleExecuteCopilotAction = (actionItem) => {
@@ -151,54 +284,109 @@ export const DynamicUiRenderer = ({
     setTimeout(() => {
       setIsCopilotExecuting(false);
       setCopilotActionNotice(`Executed: ${label}`);
-      if (onTriggerAction) {
-        onTriggerAction(`AI Copilot executed: ${label}`);
-      }
+      // Mark first pending item completed
+      setItemsList((prev) => {
+        if (prev.length > 0) {
+          const updated = [...prev];
+          updated[0] = { ...updated[0], status: 'Completed' };
+          return updated;
+        }
+        return prev;
+      });
+      triggerToast(`AI Copilot executed: ${label}`);
       setTimeout(() => setCopilotActionNotice(null), 3500);
-    }, 450);
+    }, 500);
+  };
+
+  const handleExportSpec = () => {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(specification, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `${(page.name || 'ui-specification').toLowerCase().replace(/\s+/g, '-')}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    triggerToast('Exported UI specification JSON');
+  };
+
+  const handleExportTelemetry = () => {
+    const telemetryData = {
+      screenId: page.id,
+      timestamp: new Date().toISOString(),
+      activeItems: itemsList.length,
+      throughput: '1,420/hr',
+      slaCompliance: '99.4%',
+      records: itemsList
+    };
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(telemetryData, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `telemetry-log-${page.id || 'export'}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    triggerToast('Downloaded telemetry audit log');
   };
 
   // ---------------------------------------------------------------------------
   // DYNAMIC DUAL-TIER CONTRAST SYSTEM (CANVAS vs CARD)
-  // Guaranteed readable text colors based on exact background luminance
   // ---------------------------------------------------------------------------
-  const canvasBg = theme.background || (theme.mode === 'light' ? '#FDF8F0' : '#0B0F19');
-  const isCanvasDark = isDark(canvasBg);
+  const isLightMode = Boolean(
+    theme.mode === 'light' ||
+    theme.id === 'warm-cream' ||
+    (theme.background && !isDark(theme.background)) ||
+    (theme.bgPrimary && !isDark(theme.bgPrimary))
+  );
 
-  const cardBg = theme.cardBg || theme.surface || (isCanvasDark ? '#111827' : '#FFFFFF');
-  const isCardDark = isDark(cardBg);
+  const canvasBg = isLightMode
+    ? (theme.background && !isDark(theme.background) ? theme.background : '#F6F1E8')
+    : (theme.background || '#0B0F19');
+  const isCanvasDark = isLightMode ? false : isDark(canvasBg);
+
+  const rawCardBg = theme.cardBg || theme.surface;
+  const cardBg = isLightMode
+    ? (rawCardBg && !isDark(rawCardBg) ? rawCardBg : '#FFFDF8')
+    : (rawCardBg && isDark(rawCardBg) ? rawCardBg : (isCanvasDark ? '#111827' : '#FFFDF8'));
+  const isCardDark = isLightMode ? false : isDark(cardBg);
 
   const tokens = {
     isCanvasDark,
     isCardDark,
     canvasBg,
-    canvasText: isCanvasDark ? '#FFFFFF' : '#0F172A',
-    canvasTextMuted: isCanvasDark ? '#94A3B8' : '#475569',
-    canvasBorder: isCanvasDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)',
-    
+    canvasText: isLightMode ? '#29231F' : (isCanvasDark ? '#FFFFFF' : '#0F172A'),
+    canvasTextMuted: isLightMode ? '#746B62' : (isCanvasDark ? '#94A3B8' : '#475569'),
+    canvasBorder: isLightMode ? '#D8CCBC' : (isCanvasDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.12)'),
+
     cardBg,
-    cardText: isCardDark ? '#FFFFFF' : '#0F172A',
-    cardTextMuted: isCardDark ? '#94A3B8' : '#64748B',
-    cardBorder: isCardDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-    cardSubtle: isCardDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
-    cardShadow: isCardDark ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
-    
-    primary: theme.primary || (isCanvasDark ? '#3B82F6' : '#2563EB'),
-    accent: theme.accent || theme.primary || (isCanvasDark ? '#60A5FA' : '#3B82F6'),
-    buttonPrimary: theme.buttonPrimary || theme.primary || '#2563EB',
-    
-    btnSecondaryBg: isCanvasDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF',
-    btnSecondaryBorder: isCanvasDark ? 'rgba(255, 255, 255, 0.18)' : '#CBD5E1',
-    btnSecondaryText: isCanvasDark ? '#F1F5F9' : '#1E293B',
+    cardText: isLightMode ? '#29231F' : (isCardDark ? '#FFFFFF' : '#0F172A'),
+    cardTextMuted: isLightMode ? '#746B62' : (isCardDark ? '#94A3B8' : '#64748B'),
+    cardBorder: isLightMode ? '#D8CCBC' : (isCardDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'),
+    cardSubtle: isLightMode ? '#F1E9DD' : (isCardDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)'),
+    cardShadow: isLightMode
+      ? '0 1px 3px rgba(41, 35, 31, 0.06), 0 1px 2px rgba(41, 35, 31, 0.04)'
+      : (isCardDark ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)'),
 
-    cardBtnSecondaryBg: isCardDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF',
-    cardBtnSecondaryBorder: isCardDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1',
-    cardBtnSecondaryText: isCardDark ? '#F1F5F9' : '#1E293B',
+    primary: isLightMode ? '#8B4513' : (theme.primary || (isCanvasDark ? '#3B82F6' : '#2563EB')),
+    primaryHover: isLightMode ? '#6F350F' : '#1D4ED8',
+    accent: isLightMode ? '#B66A24' : (theme.accent || theme.primary || (isCanvasDark ? '#60A5FA' : '#3B82F6')),
+    buttonPrimary: isLightMode ? '#8B4513' : (theme.buttonPrimary || theme.primary || '#2563EB'),
 
-    tableHeaderBg: isCardDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-    tableHeaderText: isCardDark ? '#CBD5E1' : '#475569',
+    btnSecondaryBg: isLightMode ? '#FFFDF8' : (isCanvasDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF'),
+    btnSecondaryBorder: isLightMode ? '#D8CCBC' : (isCanvasDark ? 'rgba(255, 255, 255, 0.18)' : '#CBD5E1'),
+    btnSecondaryText: isLightMode ? '#29231F' : (isCanvasDark ? '#F1F5F9' : '#1E293B'),
 
-    radius: theme.radius || '8px'
+    cardBtnSecondaryBg: isLightMode ? '#F1E9DD' : (isCardDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF'),
+    cardBtnSecondaryBorder: isLightMode ? '#D8CCBC' : (isCardDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1'),
+    cardBtnSecondaryText: isLightMode ? '#29231F' : (isCardDark ? '#F1F5F9' : '#1E293B'),
+
+    tableHeaderBg: isLightMode ? '#F1E9DD' : (isCardDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'),
+    tableHeaderText: isLightMode ? '#746B62' : (isCardDark ? '#CBD5E1' : '#475569'),
+
+    success: isLightMode ? '#2F7D5B' : '#10B981',
+    warning: isLightMode ? '#B7791F' : '#F59E0B',
+    danger: isLightMode ? '#B84A4A' : '#EF4444',
+
+    radius: theme.radius || (isLightMode ? '10px' : '8px')
   };
 
   // Component Categorization
@@ -242,28 +430,47 @@ export const DynamicUiRenderer = ({
   const isLeftSidebar = layout.sidebarPosition === 'left';
   const gridGap = layout.density === 'compact' ? 8 : 10;
 
-  // Ergonomic Zero-Scroll Desktop Container
-  const containerStyle = {
-    backgroundColor: tokens.canvasBg,
-    color: tokens.canvasText,
-    fontFamily: theme.fontFamily || 'Plus Jakarta Sans, Inter, sans-serif',
-    borderRadius: isMobile ? 0 : tokens.radius,
-    width: '100%',
-    maxWidth: '100%',
-    height: isMobile ? 'auto' : (isTablet ? 'auto' : '100%'),
-    maxHeight: isMobile ? 'none' : (isTablet ? 'none' : '100%'),
-    boxSizing: 'border-box',
-    overflowX: 'hidden',
-    overflowY: isMobile ? 'auto' : (isTablet ? 'auto' : 'hidden'),
-    padding: isMobile ? '10px 8px 60px' : (isTablet ? '12px 14px 20px' : '10px 14px 12px'),
-    display: 'flex',
-    flexDirection: 'column',
-    gap: gridGap
-  };
+  // Filtered Table Records
+  const filteredRecords = useMemo(() => {
+    return itemsList.filter((row) => {
+      if (searchQuery) {
+        const rowStr = Object.values(row).join(' ').toLowerCase();
+        if (!rowStr.includes(searchQuery.toLowerCase())) return false;
+      }
+      if (activeFilterChip && activeFilterChip !== 'All' && !activeFilterChip.includes('All')) {
+        const chipWord = activeFilterChip.toLowerCase().replace(/items|patients|orders|records|active/g, '').trim();
+        const rowStr = Object.values(row).join(' ').toLowerCase();
+        if (chipWord && !rowStr.includes(chipWord)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [itemsList, searchQuery, activeFilterChip]);
 
   return (
-    <div style={containerStyle} className="dynamic-ui-container">
-      {/* 1. TOP HEADER & SCREEN IDENTITY (Compact ~40px) */}
+    <div
+      style={{
+        backgroundColor: tokens.canvasBg,
+        color: tokens.canvasText,
+        fontFamily: theme.fontFamily || 'Plus Jakarta Sans, Inter, sans-serif',
+        borderRadius: isMobile ? 0 : tokens.radius,
+        width: '100%',
+        maxWidth: '100%',
+        height: isMobile ? 'auto' : (isTablet ? 'auto' : '100%'),
+        maxHeight: isMobile ? 'none' : (isTablet ? 'none' : '100%'),
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        overflowY: isMobile ? 'auto' : (isTablet ? 'auto' : 'hidden'),
+        padding: isMobile ? '10px 8px 60px' : (isTablet ? '12px 14px 20px' : '10px 14px 12px'),
+        display: 'flex',
+        flexDirection: 'column',
+        gap: gridGap,
+        position: 'relative'
+      }}
+      className="dynamic-ui-container"
+    >
+      {/* 1. TOP HEADER & SCREEN IDENTITY */}
       <div
         style={{
           display: 'flex',
@@ -284,8 +491,8 @@ export const DynamicUiRenderer = ({
               width: 28,
               height: 28,
               borderRadius: 6,
-              backgroundColor: `${tokens.primary}25`,
-              border: `1px solid ${tokens.primary}40`,
+              backgroundColor: `${tokens.primary}20`,
+              border: `1px solid ${tokens.primary}35`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -317,13 +524,13 @@ export const DynamicUiRenderer = ({
                   fontWeight: 700,
                   padding: '1px 6px',
                   borderRadius: 10,
-                  backgroundColor: `${tokens.primary}20`,
+                  backgroundColor: `${tokens.primary}18`,
                   color: tokens.primary,
-                  border: `1px solid ${tokens.primary}35`,
+                  border: `1px solid ${tokens.primary}30`,
                   flexShrink: 0
                 }}
               >
-                {page.businessDomain || 'PRODUCTION'}
+                {page.businessDomain || 'ENTERPRISE'}
               </span>
             </div>
             <p
@@ -344,42 +551,57 @@ export const DynamicUiRenderer = ({
 
         {/* Global Action Triggers */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: isMobile ? 'stretch' : 'auto', flexShrink: 0 }}>
-          {actions.map((act, aIdx) => {
-            const isPrimary = act.variant === 'primary' || aIdx === 0;
-            const IconCmp = act.icon && ICON_MAP[act.icon] ? ICON_MAP[act.icon] : (isPrimary ? Zap : Download);
-            return (
-              <button
-                key={act.id || aIdx}
-                type="button"
-                onClick={() => handleAction(act.label)}
-                style={{
-                  flex: isMobile ? 1 : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  padding: '5px 10px',
-                  borderRadius: tokens.radius,
-                  fontSize: '0.725rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: isPrimary ? 'none' : `1px solid ${tokens.btnSecondaryBorder}`,
-                  backgroundColor: isPrimary ? tokens.buttonPrimary : tokens.btnSecondaryBg,
-                  color: isPrimary ? '#FFFFFF' : tokens.btnSecondaryText,
-                  transition: 'all 0.15s ease',
-                  boxShadow: isPrimary ? `0 2px 8px ${tokens.primary}35` : 'none'
-                }}
-              >
-                <IconCmp size={12} />
-                {act.label}
-              </button>
-            );
-          })}
+          <button
+            type="button"
+            onClick={handleBatchRun}
+            style={{
+              flex: isMobile ? 1 : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+              padding: '5px 10px',
+              borderRadius: tokens.radius,
+              fontSize: '0.725rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: 'none',
+              backgroundColor: tokens.buttonPrimary,
+              color: '#FFFFFF',
+              transition: 'all 0.15s ease',
+              boxShadow: `0 2px 8px ${tokens.primary}30`
+            }}
+          >
+            <Zap size={12} />
+            Execute Resolution
+          </button>
+          <button
+            type="button"
+            onClick={handleExportSpec}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+              padding: '5px 10px',
+              borderRadius: tokens.radius,
+              fontSize: '0.725rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: `1px solid ${tokens.btnSecondaryBorder}`,
+              backgroundColor: tokens.btnSecondaryBg,
+              color: tokens.btnSecondaryText,
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <Download size={12} />
+            Export Spec
+          </button>
         </div>
       </div>
 
       {/* 2. SUB-NAVIGATION TABS */}
-      {navigation.length > 1 && (
+      {navigation.length > 0 && (
         <div
           style={{
             display: 'flex',
@@ -400,7 +622,10 @@ export const DynamicUiRenderer = ({
               <button
                 key={nav.id}
                 type="button"
-                onClick={() => setActiveTabId(nav.id)}
+                onClick={() => {
+                  setActiveTabId(nav.id);
+                  triggerToast(`Switched view: ${nav.label}`);
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -408,7 +633,7 @@ export const DynamicUiRenderer = ({
                   padding: '4px 8px',
                   borderRadius: tokens.radius,
                   border: 'none',
-                  backgroundColor: isActive ? `${tokens.primary}20` : 'transparent',
+                  backgroundColor: isActive ? `${tokens.primary}18` : 'transparent',
                   color: isActive ? tokens.primary : tokens.canvasTextMuted,
                   fontSize: '0.725rem',
                   fontWeight: isActive ? 700 : 500,
@@ -425,7 +650,7 @@ export const DynamicUiRenderer = ({
                       fontSize: '0.6rem',
                       padding: '1px 5px',
                       borderRadius: 10,
-                      backgroundColor: isActive ? tokens.primary : (tokens.isCanvasDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0'),
+                      backgroundColor: isActive ? tokens.primary : (tokens.isCanvasDark ? 'rgba(255,255,255,0.1)' : tokens.cardSubtle),
                       color: isActive ? '#FFFFFF' : tokens.canvasTextMuted,
                       fontWeight: 700
                     }}
@@ -439,29 +664,35 @@ export const DynamicUiRenderer = ({
         </div>
       )}
 
-      {/* 3. TIER 1: KPI STATS STRIP (Compact ~54px) */}
+      {/* 3. KPI STATS STRIP */}
       {categorized.kpis.map((cmp) => (
         <div key={cmp.id} style={{ width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
-          <KpiGridComponent cmp={cmp} tokens={tokens} isMobile={isMobile} isTablet={isTablet} onAction={handleAction} />
-        </div>
-      ))}
-
-      {/* 4. TIER 1: SEARCH & FILTER TOOLBAR (Compact ~36px) */}
-      {categorized.toolbars.map((cmp) => (
-        <div key={cmp.id} style={{ width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
-          <SearchFilterBarComponent
+          <KpiGridComponent
             cmp={cmp}
             tokens={tokens}
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-            activeFilterChip={activeFilterChip}
-            setActiveFilterChip={setActiveFilterChip}
-            onAction={handleAction}
+            isMobile={isMobile}
+            isTablet={isTablet}
+            itemsCount={itemsList.length}
+            onAction={triggerToast}
           />
         </div>
       ))}
 
-      {/* 5. TIER 2: WORKSTATION SPLIT-GRID (Fits Desktop Viewport with Internal Scrolling) */}
+      {/* 4. SEARCH & FILTER TOOLBAR */}
+      <div style={{ width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
+        <SearchFilterBarComponent
+          tokens={tokens}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          activeFilterChip={activeFilterChip}
+          setActiveFilterChip={setActiveFilterChip}
+          onOpenAddModal={() => setShowAddModal(true)}
+          onBatchRun={handleBatchRun}
+          totalCount={filteredRecords.length}
+        />
+      </div>
+
+      {/* 5. WORKSTATION SPLIT-GRID */}
       <div
         style={{
           flex: 1,
@@ -485,6 +716,8 @@ export const DynamicUiRenderer = ({
                 cmp={cmp}
                 tokens={tokens}
                 onExecute={handleExecuteCopilotAction}
+                onInspectRationale={() => setShowRationaleModal(true)}
+                onExportTelemetry={handleExportTelemetry}
                 isExecuting={isCopilotExecuting}
                 actionNotice={copilotActionNotice}
               />
@@ -494,24 +727,42 @@ export const DynamicUiRenderer = ({
 
         {/* Center Main Workstation */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: gridGap, minHeight: 0, height: isMobile ? 'auto' : '100%', width: '100%', boxSizing: 'border-box', overflow: isMobile ? 'visible' : 'hidden' }}>
-          {/* Primary Table (Flex 1 with internal scroll) */}
-          {categorized.tables.map((cmp) => (
-            <div key={cmp.id} style={{ flex: 1, minHeight: isMobile ? 'auto' : '170px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <DataTableComponent
-                cmp={cmp}
-                tokens={tokens}
-                searchQuery={searchQuery}
-                activeFilterChip={activeFilterChip}
-                selectedRowId={selectedRowId}
-                setSelectedRowId={setSelectedRowId}
-                onAction={handleAction}
-              />
-            </div>
-          ))}
+          {/* Primary Table (Interactive CRUD) */}
+          <div style={{ flex: 1, minHeight: isMobile ? 'auto' : '170px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <DataTableComponent
+              title={categorized.tables[0]?.title || 'Active Operational Work Queue'}
+              columns={categorized.tables[0]?.props?.columns || ['Item ID', 'Title / Description', 'Category', 'Priority', 'Assigned Actor', 'Status', 'Actions']}
+              records={filteredRecords}
+              tokens={tokens}
+              searchQuery={searchQuery}
+              onApprove={handleApprove}
+              onEscalate={handleEscalate}
+              onExecute={handleExecute}
+              onArchive={handleArchive}
+              onOpenDetails={(row) => {
+                setSelectedRow(row);
+                setShowDetailsModal(true);
+              }}
+              onSync={handleSync}
+              isSyncing={isSyncing}
+              lastSyncTime={lastSyncTime}
+            />
+          </div>
 
-          {/* Kanban */}
+          {/* Kanban Board (Interactive State Movement) */}
           {categorized.kanbans.map((cmp) => (
-            <KanbanBoardComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={handleAction} />
+            <KanbanBoardComponent
+              key={cmp.id}
+              cmp={cmp}
+              tokens={tokens}
+              kanbanItems={kanbanItems}
+              onMoveItem={(itemId, newCol) => {
+                setKanbanItems((prev) =>
+                  prev.map((k) => (k.id === itemId ? { ...k, column: newCol } : k))
+                );
+                triggerToast(`Moved task to ${newCol.toUpperCase()}`);
+              }}
+            />
           ))}
 
           {/* Lower 2-Column Analytics & Workflow Row */}
@@ -530,18 +781,18 @@ export const DynamicUiRenderer = ({
               }}
             >
               {categorized.charts.map((cmp) => (
-                <ChartComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={handleAction} />
+                <ChartComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={triggerToast} />
               ))}
 
               {categorized.workflows.map((cmp) => (
-                <WorkflowTrackerComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={handleAction} />
+                <WorkflowTrackerComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={triggerToast} />
               ))}
             </div>
           )}
 
           {/* Other Custom Widgets */}
           {categorized.others.map((cmp) => (
-            <GenericCardComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={handleAction} />
+            <GenericCardComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={triggerToast} />
           ))}
         </div>
 
@@ -554,6 +805,8 @@ export const DynamicUiRenderer = ({
                 cmp={cmp}
                 tokens={tokens}
                 onExecute={handleExecuteCopilotAction}
+                onInspectRationale={() => setShowRationaleModal(true)}
+                onExportTelemetry={handleExportTelemetry}
                 isExecuting={isCopilotExecuting}
                 actionNotice={copilotActionNotice}
               />
@@ -561,26 +814,425 @@ export const DynamicUiRenderer = ({
 
             {categorized.activities.length > 0 && (
               categorized.activities.map((cmp) => (
-                <ActivityFeedComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={handleAction} />
+                <ActivityFeedComponent key={cmp.id} cmp={cmp} tokens={tokens} onAction={triggerToast} />
               ))
             )}
           </div>
         )}
       </div>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 6. MODAL 1: ADD NEW WORK ITEM (Controlled Form) */}
+      {/* ------------------------------------------------------------------- */}
+      {showAddModal && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(2px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: 16
+          }}
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: tokens.cardBg,
+              border: `1px solid ${tokens.cardBorder}`,
+              borderRadius: tokens.radius,
+              padding: '16px 20px',
+              width: '100%',
+              maxWidth: 420,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: tokens.cardText }}>
+                Create New Work Item
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.cardTextMuted }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateWorkItem} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: tokens.cardTextMuted, marginBottom: 4 }}>
+                  Title / Task Description
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Ingestion Pipeline Reconciliation"
+                  value={newItemForm.title}
+                  onChange={(e) => setNewItemForm({ ...newItemForm, title: e.target.value })}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: `1px solid ${tokens.cardBorder}`,
+                    backgroundColor: tokens.cardSubtle,
+                    color: tokens.cardText,
+                    fontSize: '0.75rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: tokens.cardTextMuted, marginBottom: 4 }}>
+                    Category
+                  </label>
+                  <select
+                    value={newItemForm.category}
+                    onChange={(e) => setNewItemForm({ ...newItemForm, category: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      borderRadius: 4,
+                      border: `1px solid ${tokens.cardBorder}`,
+                      backgroundColor: tokens.cardSubtle,
+                      color: tokens.cardText,
+                      fontSize: '0.725rem'
+                    }}
+                  >
+                    <option value="Operations">Operations</option>
+                    <option value="Data Pipeline">Data Pipeline</option>
+                    <option value="Compliance">Compliance</option>
+                    <option value="Financial">Financial</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: tokens.cardTextMuted, marginBottom: 4 }}>
+                    Priority
+                  </label>
+                  <select
+                    value={newItemForm.priority}
+                    onChange={(e) => setNewItemForm({ ...newItemForm, priority: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      borderRadius: 4,
+                      border: `1px solid ${tokens.cardBorder}`,
+                      backgroundColor: tokens.cardSubtle,
+                      color: tokens.cardText,
+                      fontSize: '0.725rem'
+                    }}
+                  >
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: tokens.cardTextMuted, marginBottom: 4 }}>
+                  Assigned Actor
+                </label>
+                <input
+                  type="text"
+                  value={newItemForm.assignedActor}
+                  onChange={(e) => setNewItemForm({ ...newItemForm, assignedActor: e.target.value })}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: `1px solid ${tokens.cardBorder}`,
+                    backgroundColor: tokens.cardSubtle,
+                    color: tokens.cardText,
+                    fontSize: '0.75rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 4,
+                    border: `1px solid ${tokens.cardBorder}`,
+                    backgroundColor: tokens.cardSubtle,
+                    color: tokens.cardText,
+                    fontSize: '0.725rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 4,
+                    border: 'none',
+                    backgroundColor: tokens.buttonPrimary,
+                    color: '#FFFFFF',
+                    fontSize: '0.725rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Save Work Item
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 7. MODAL 2: INSPECT AI DECISION RATIONALE */}
+      {/* ------------------------------------------------------------------- */}
+      {showRationaleModal && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(2px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: 16
+          }}
+          onClick={() => setShowRationaleModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: tokens.cardBg,
+              border: `1px solid ${tokens.cardBorder}`,
+              borderRadius: tokens.radius,
+              padding: '16px 20px',
+              width: '100%',
+              maxWidth: 440,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Bot size={16} color={tokens.primary} />
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: tokens.cardText }}>
+                  Model Decision Explainability
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRationaleModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.cardTextMuted }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.725rem' }}>
+              <div style={{ backgroundColor: tokens.cardSubtle, padding: '8px 10px', borderRadius: 4, border: `1px solid ${tokens.cardBorder}` }}>
+                <div style={{ fontWeight: 700, color: tokens.cardText, marginBottom: 2 }}>Confidence Score: 98.4%</div>
+                <div style={{ color: tokens.cardTextMuted }}>Verified against 12 historical exception runs with zero regression.</div>
+              </div>
+
+              <div>
+                <span style={{ fontWeight: 700, color: tokens.cardTextMuted, fontSize: '0.65rem', textTransform: 'uppercase' }}>Key Decision Drivers:</span>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18, color: tokens.cardText, lineHeight: 1.5 }}>
+                  <li>SLA deadline remaining &lt; 4.0 minutes (Weight: 0.42)</li>
+                  <li>Alternative route available without fee penalty (Weight: 0.38)</li>
+                  <li>Automated bot trust tier certified (Weight: 0.20)</li>
+                </ul>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRationaleModal(false)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 4,
+                    border: 'none',
+                    backgroundColor: tokens.buttonPrimary,
+                    color: '#FFFFFF',
+                    fontSize: '0.725rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Close Rationale
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 8. MODAL 3: ROW DETAILS INSPECTOR */}
+      {/* ------------------------------------------------------------------- */}
+      {showDetailsModal && selectedRow && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(2px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: 16
+          }}
+          onClick={() => setShowDetailsModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: tokens.cardBg,
+              border: `1px solid ${tokens.cardBorder}`,
+              borderRadius: tokens.radius,
+              padding: '16px 20px',
+              width: '100%',
+              maxWidth: 420,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <FileText size={16} color={tokens.primary} />
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: tokens.cardText }}>
+                  Record: {selectedRow.id}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDetailsModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.cardTextMuted }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.725rem' }}>
+              {Object.entries(selectedRow)
+                .filter(([k]) => k !== 'internalId' && k !== 'actions')
+                .map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: `1px solid ${tokens.cardBorder}` }}>
+                    <span style={{ fontWeight: 700, color: tokens.cardTextMuted, textTransform: 'capitalize' }}>{k}</span>
+                    <span style={{ fontWeight: 600, color: tokens.cardText }}>{String(v)}</span>
+                  </div>
+                ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  handleApprove(selectedRow.id);
+                  setShowDetailsModal(false);
+                }}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 4,
+                  border: 'none',
+                  backgroundColor: tokens.success,
+                  color: '#FFFFFF',
+                  fontSize: '0.725rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDetailsModal(false)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 4,
+                  border: `1px solid ${tokens.cardBorder}`,
+                  backgroundColor: tokens.cardSubtle,
+                  color: tokens.cardText,
+                  fontSize: '0.725rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 9. PROTOTYPE ACTION TOAST NOTIFICATION */}
+      {/* ------------------------------------------------------------------- */}
+      {toastMessage && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            right: 14,
+            backgroundColor: tokens.buttonPrimary,
+            color: '#FFFFFF',
+            padding: '6px 12px',
+            borderRadius: 6,
+            fontSize: '0.725rem',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+            zIndex: 110,
+            animation: 'fadeIn 0.2s ease'
+          }}
+        >
+          <CheckCircle2 size={13} />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// 1. KPI GRID COMPONENT (High-Contrast Theme Tokens)
+// 1. KPI GRID COMPONENT
 // ---------------------------------------------------------------------------
-function KpiGridComponent({ cmp, tokens, isMobile, isTablet, onAction }) {
-  const items = cmp.props?.items || [
-    { label: 'Operational Throughput', value: '1,420/hr', change: '+12%', trend: 'up', icon: 'Zap' },
-    { label: 'SLA Adherence', value: '99.4%', change: 'Optimal', trend: 'up', icon: 'ShieldCheck' },
-    { label: 'Active Queue', value: '42 items', change: '-8%', trend: 'down', icon: 'Clock' },
-    { label: 'Automated Accuracy', value: '98.8%', change: 'Audited', trend: 'up', icon: 'Bot' }
+function KpiGridComponent({ cmp, tokens, isMobile, isTablet, itemsCount, onAction }) {
+  const defaultItems = [
+    { label: 'Operational Throughput', value: '1,420/hr', change: '+14%', trend: 'up', icon: 'Zap' },
+    { label: 'Mean SLA Resolution', value: '1.8 min', change: 'Target < 3m', trend: 'down', icon: 'Clock' },
+    { label: 'Work Queue Backlog', value: `${itemsCount} items`, change: '-28%', trend: 'down', icon: 'Inbox' },
+    { label: 'Automated Copilot Accuracy', value: '98.4%', change: 'Audited', trend: 'up', icon: 'Bot' }
   ];
+
+  const items = cmp.props?.items || defaultItems;
 
   return (
     <div
@@ -643,7 +1295,7 @@ function KpiGridComponent({ cmp, tokens, isMobile, isTablet, onAction }) {
                   width: 18,
                   height: 18,
                   borderRadius: 4,
-                  backgroundColor: `${tokens.primary}20`,
+                  backgroundColor: `${tokens.primary}18`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -668,7 +1320,7 @@ function KpiGridComponent({ cmp, tokens, isMobile, isTablet, onAction }) {
                   textOverflow: 'ellipsis'
                 }}
               >
-                {item.value}
+                {idx === 2 ? `${itemsCount} items` : item.value}
               </span>
               {item.change && (
                 <div
@@ -680,8 +1332,8 @@ function KpiGridComponent({ cmp, tokens, isMobile, isTablet, onAction }) {
                     fontWeight: 700,
                     padding: '1px 4px',
                     borderRadius: 3,
-                    backgroundColor: isUp ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                    color: isUp ? '#10B981' : '#EF4444',
+                    backgroundColor: isUp ? 'rgba(47, 125, 91, 0.12)' : 'rgba(184, 74, 74, 0.12)',
+                    color: isUp ? tokens.success : tokens.danger,
                     flexShrink: 0
                   }}
                 >
@@ -700,11 +1352,17 @@ function KpiGridComponent({ cmp, tokens, isMobile, isTablet, onAction }) {
 // ---------------------------------------------------------------------------
 // 2. SEARCH & FILTER TOOLBAR
 // ---------------------------------------------------------------------------
-function SearchFilterBarComponent({ cmp, tokens, searchQuery, setSearchQuery, activeFilterChip, setActiveFilterChip, onAction }) {
-  const { props = {} } = cmp;
-  const filterChips = props.filterChips || ['All Items', 'High Priority', 'In-Progress', 'Completed'];
-  const actionButtons = props.actionButtons || [];
-  const placeholder = props.searchPlaceholder || 'Search records, items, or accounts...';
+function SearchFilterBarComponent({
+  tokens,
+  searchQuery,
+  setSearchQuery,
+  activeFilterChip,
+  setActiveFilterChip,
+  onOpenAddModal,
+  onBatchRun,
+  totalCount
+}) {
+  const filterChips = ['All', 'High Priority', 'SLA Critical', 'In Progress', 'Completed'];
 
   return (
     <div
@@ -728,7 +1386,7 @@ function SearchFilterBarComponent({ cmp, tokens, searchQuery, setSearchQuery, ac
         style={{
           flex: 1,
           minWidth: 180,
-          maxWidth: 380,
+          maxWidth: 340,
           display: 'flex',
           alignItems: 'center',
           gap: 6,
@@ -743,7 +1401,7 @@ function SearchFilterBarComponent({ cmp, tokens, searchQuery, setSearchQuery, ac
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={placeholder}
+          placeholder="Search items by ID, title, actor..."
           style={{
             flex: 1,
             background: 'transparent',
@@ -765,101 +1423,98 @@ function SearchFilterBarComponent({ cmp, tokens, searchQuery, setSearchQuery, ac
       </div>
 
       {/* Filter Chips */}
-      {filterChips.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-          {filterChips.map((chip, cIdx) => {
-            const isSelected = activeFilterChip === chip || (activeFilterChip === 'All' && cIdx === 0);
-            return (
-              <button
-                key={cIdx}
-                type="button"
-                onClick={() => {
-                  setActiveFilterChip(chip);
-                  if (onAction) onAction(`Applied filter: ${chip}`);
-                }}
-                style={{
-                  fontSize: '0.65rem',
-                  fontWeight: isSelected ? 700 : 500,
-                  padding: '2px 7px',
-                  borderRadius: 12,
-                  border: isSelected ? `1px solid ${tokens.primary}` : `1px solid ${tokens.cardBorder}`,
-                  backgroundColor: isSelected ? `${tokens.primary}25` : tokens.cardSubtle,
-                  color: isSelected ? tokens.primary : tokens.cardTextMuted,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {chip}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        {filterChips.map((chip, cIdx) => {
+          const isSelected = activeFilterChip === chip || (activeFilterChip === 'All' && cIdx === 0);
+          return (
+            <button
+              key={cIdx}
+              type="button"
+              onClick={() => setActiveFilterChip(chip)}
+              style={{
+                fontSize: '0.65rem',
+                fontWeight: isSelected ? 700 : 500,
+                padding: '2px 7px',
+                borderRadius: 12,
+                border: isSelected ? `1px solid ${tokens.primary}` : `1px solid ${tokens.cardBorder}`,
+                backgroundColor: isSelected ? `${tokens.primary}20` : tokens.cardSubtle,
+                color: isSelected ? tokens.primary : tokens.cardTextMuted,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {chip}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Action Buttons */}
-      {actionButtons.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          {actionButtons.map((btn, bIdx) => {
-            const isPrimary = btn.variant === 'primary' || bIdx === 0;
-            const IconCmp = btn.icon && ICON_MAP[btn.icon] ? ICON_MAP[btn.icon] : Plus;
-            return (
-              <button
-                key={bIdx}
-                type="button"
-                onClick={() => onAction && onAction(btn.label)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  padding: '4px 8px',
-                  borderRadius: 4,
-                  fontSize: '0.675rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: isPrimary ? 'none' : `1px solid ${tokens.cardBtnSecondaryBorder}`,
-                  backgroundColor: isPrimary ? tokens.buttonPrimary : tokens.cardBtnSecondaryBg,
-                  color: isPrimary ? '#FFFFFF' : tokens.cardBtnSecondaryText
-                }}
-              >
-                <IconCmp size={11} />
-                {btn.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <button
+          type="button"
+          onClick={onOpenAddModal}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '4px 8px',
+            borderRadius: 4,
+            fontSize: '0.675rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            border: 'none',
+            backgroundColor: tokens.buttonPrimary,
+            color: '#FFFFFF'
+          }}
+        >
+          <Plus size={11} />
+          + Add Work Item
+        </button>
+
+        <button
+          type="button"
+          onClick={onBatchRun}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '4px 8px',
+            borderRadius: 4,
+            fontSize: '0.675rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            border: `1px solid ${tokens.cardBtnSecondaryBorder}`,
+            backgroundColor: tokens.cardBtnSecondaryBg,
+            color: tokens.cardBtnSecondaryText
+          }}
+        >
+          <Play size={11} />
+          Batch Actions
+        </button>
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 3. DATA TABLE COMPONENT (High-Contrast & Constrained Viewport)
+// 3. DATA TABLE COMPONENT
 // ---------------------------------------------------------------------------
-function DataTableComponent({ cmp, tokens, searchQuery, activeFilterChip, selectedRowId, setSelectedRowId, onAction }) {
-  const { title, props = {} } = cmp;
-  const columns = props.columns || ['ID', 'Title', 'Status', 'Priority', 'Actions'];
-  const rawRows = props.rows || [
-    { id: '1', title: 'Task Alpha', status: 'In-Progress', priority: 'High', actions: ['Inspect'] },
-    { id: '2', title: 'Task Beta', status: 'Completed', priority: 'Medium', actions: ['Inspect'] }
-  ];
-
-  const filteredRows = useMemo(() => {
-    return rawRows.filter((row) => {
-      if (searchQuery) {
-        const rowStr = Object.values(row).join(' ').toLowerCase();
-        if (!rowStr.includes(searchQuery.toLowerCase())) return false;
-      }
-      if (activeFilterChip && activeFilterChip !== 'All' && !activeFilterChip.includes('All')) {
-        const rowStr = Object.values(row).join(' ').toLowerCase();
-        const chipWord = activeFilterChip.toLowerCase().replace(/items|patients|orders|records/g, '').trim();
-        if (chipWord && !rowStr.includes(chipWord)) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [rawRows, searchQuery, activeFilterChip]);
-
+function DataTableComponent({
+  title,
+  columns,
+  records,
+  tokens,
+  searchQuery,
+  onApprove,
+  onEscalate,
+  onExecute,
+  onArchive,
+  onOpenDetails,
+  onSync,
+  isSyncing,
+  lastSyncTime
+}) {
   return (
     <div
       style={{
@@ -896,17 +1551,17 @@ function DataTableComponent({ cmp, tokens, searchQuery, activeFilterChip, select
               fontWeight: 700,
               padding: '1px 5px',
               borderRadius: 6,
-              backgroundColor: tokens.primary ? `${tokens.primary}20` : tokens.cardSubtle,
+              backgroundColor: `${tokens.primary}18`,
               color: tokens.primary
             }}
           >
-            {filteredRows.length} items
+            {records.length} items
           </span>
         </div>
 
         <button
           type="button"
-          onClick={() => onAction && onAction(`Refreshed ${title}`)}
+          onClick={onSync}
           style={{
             background: 'none',
             border: 'none',
@@ -918,7 +1573,7 @@ function DataTableComponent({ cmp, tokens, searchQuery, activeFilterChip, select
             gap: 3
           }}
         >
-          <RefreshCw size={10} /> Sync
+          <RefreshCw size={10} className={isSyncing ? 'spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync'}
         </button>
       </div>
 
@@ -964,95 +1619,122 @@ function DataTableComponent({ cmp, tokens, searchQuery, activeFilterChip, select
             </tr>
           </thead>
           <tbody>
-            {filteredRows.length === 0 ? (
+            {records.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} style={{ padding: '20px 10px', textAlign: 'center', color: tokens.cardTextMuted }}>
-                  No matching records found.
+                  No matching records found for "{searchQuery}".
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row, rIdx) => {
-                const isSelected = selectedRowId === row.id || (selectedRowId === null && rIdx === 0);
-                const values = Object.entries(row).filter(([k]) => k !== 'id' && k !== 'actions');
-                const rowActions = row.actions || ['Inspect'];
+              records.map((row, rIdx) => {
+                const isCritical = /critical|urgent|warning|escalated/i.test(row.priority || row.status);
+                const isCompleted = /completed|verified|delivered|settled/i.test(row.status);
 
                 return (
                   <tr
                     key={row.id || rIdx}
-                    onClick={() => setSelectedRowId(row.id)}
+                    onClick={() => onOpenDetails(row)}
                     style={{
                       borderBottom: `1px solid ${tokens.cardBorder}`,
-                      backgroundColor: isSelected ? `${tokens.primary}18` : 'transparent',
                       cursor: 'pointer',
                       transition: 'background-color 0.15s ease'
                     }}
                     onMouseEnter={(e) => {
-                      if (!isSelected) e.currentTarget.style.backgroundColor = tokens.cardSubtle;
+                      e.currentTarget.style.backgroundColor = tokens.cardSubtle;
                     }}
                     onMouseLeave={(e) => {
-                      if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.backgroundColor = 'transparent';
                     }}
                   >
                     <td style={{ padding: '6px 8px', fontWeight: 700, color: tokens.primary, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                      {row.id || row.mrn || row.waybill || row.txHash || `REC-${rIdx + 1}`}
+                      {row.id}
                     </td>
 
-                    {values.slice(0, columns.length - 2).map(([k, val], cIdx) => {
-                      const isStatus = /status|state|severity|sla|priority/i.test(k) || (typeof val === 'string' && /completed|delivered|settled|nominal|critical|high|isolated|active|warning/i.test(val));
-                      const isCritical = typeof val === 'string' && /critical|urgent|warning|delayed|frozen|isolated/i.test(val);
-                      const isSuccess = typeof val === 'string' && /completed|delivered|settled|nominal|on-time|passed/i.test(val);
+                    <td style={{ padding: '6px 8px', color: tokens.cardText, whiteSpace: 'nowrap' }}>
+                      {row.title || row.customer || row.description}
+                    </td>
 
-                      if (isStatus) {
-                        return (
-                          <td key={cIdx} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
-                            <span
-                              style={{
-                                fontSize: '0.6rem',
-                                fontWeight: 700,
-                                padding: '1px 5px',
-                                borderRadius: 10,
-                                backgroundColor: isCritical ? 'rgba(239, 68, 68, 0.15)' : (isSuccess ? 'rgba(16, 185, 129, 0.15)' : `${tokens.primary}18`),
-                                color: isCritical ? '#EF4444' : (isSuccess ? '#10B981' : tokens.primary),
-                                border: isCritical ? '1px solid rgba(239, 68, 68, 0.3)' : (isSuccess ? '1px solid rgba(16, 185, 129, 0.3)' : `1px solid ${tokens.primary}30`)
-                              }}
-                            >
-                              {String(val)}
-                            </span>
-                          </td>
-                        );
-                      }
+                    <td style={{ padding: '6px 8px', color: tokens.cardTextMuted, whiteSpace: 'nowrap' }}>
+                      {row.category || row.bookingRef || 'General'}
+                    </td>
 
-                      return (
-                        <td key={cIdx} style={{ padding: '6px 8px', color: tokens.cardText, whiteSpace: 'nowrap' }}>
-                          {String(val)}
-                        </td>
-                      );
-                    })}
+                    <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                      <span
+                        style={{
+                          fontSize: '0.6rem',
+                          fontWeight: 700,
+                          padding: '1px 5px',
+                          borderRadius: 8,
+                          backgroundColor: isCritical ? 'rgba(184, 74, 74, 0.12)' : `${tokens.primary}18`,
+                          color: isCritical ? tokens.danger : tokens.primary,
+                          border: isCritical ? `1px solid ${tokens.danger}35` : `1px solid ${tokens.primary}30`
+                        }}
+                      >
+                        {row.priority || 'Normal'}
+                      </span>
+                    </td>
+
+                    <td style={{ padding: '6px 8px', color: tokens.cardText, whiteSpace: 'nowrap' }}>
+                      {row.assignedActor || row.agent || row.actor || 'Sarah Jenkins'}
+                    </td>
+
+                    <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                      <span
+                        style={{
+                          fontSize: '0.6rem',
+                          fontWeight: 700,
+                          padding: '1px 5px',
+                          borderRadius: 8,
+                          backgroundColor: isCompleted ? 'rgba(47, 125, 91, 0.12)' : `${tokens.primary}15`,
+                          color: isCompleted ? tokens.success : tokens.primary,
+                          border: isCompleted ? `1px solid ${tokens.success}35` : `1px solid ${tokens.primary}30`
+                        }}
+                      >
+                        {row.status || 'Active'}
+                      </span>
+                    </td>
 
                     <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                        {rowActions.slice(0, 2).map((actLabel, aIdx) => (
-                          <button
-                            key={aIdx}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onAction && onAction(`${actLabel} on ${row.id || 'row'}`);
-                            }}
-                            style={{
-                              fontSize: '0.625rem',
-                              fontWeight: 600,
-                              padding: '2px 5px',
-                              borderRadius: 3,
-                              border: aIdx === 0 ? `1px solid ${tokens.primary}60` : `1px solid ${tokens.cardBtnSecondaryBorder}`,
-                              backgroundColor: aIdx === 0 ? `${tokens.primary}20` : tokens.cardBtnSecondaryBg,
-                              color: aIdx === 0 ? tokens.primary : tokens.cardBtnSecondaryText,
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {actLabel}
-                          </button>
-                        ))}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onApprove(row.id);
+                          }}
+                          style={{
+                            fontSize: '0.625rem',
+                            fontWeight: 700,
+                            padding: '2px 5px',
+                            borderRadius: 3,
+                            border: `1px solid ${tokens.success}40`,
+                            backgroundColor: 'rgba(47, 125, 91, 0.12)',
+                            color: tokens.success,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Approve
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEscalate(row.id);
+                          }}
+                          style={{
+                            fontSize: '0.625rem',
+                            fontWeight: 600,
+                            padding: '2px 5px',
+                            borderRadius: 3,
+                            border: `1px solid ${tokens.cardBtnSecondaryBorder}`,
+                            backgroundColor: tokens.cardBtnSecondaryBg,
+                            color: tokens.cardBtnSecondaryText,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Escalate
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1069,21 +1751,25 @@ function DataTableComponent({ cmp, tokens, searchQuery, activeFilterChip, select
 // ---------------------------------------------------------------------------
 // 4. AI COPILOT PANEL
 // ---------------------------------------------------------------------------
-function AiCopilotPanelComponent({ cmp, tokens, onExecute, isExecuting, actionNotice }) {
+function AiCopilotPanelComponent({
+  cmp,
+  tokens,
+  onExecute,
+  onInspectRationale,
+  onExportTelemetry,
+  isExecuting,
+  actionNotice
+}) {
   const { title, props = {} } = cmp;
-  const score = props.confidenceScore || 96;
+  const score = props.confidenceScore || 97;
   const recommendation = props.recommendation || 'Autonomous analysis verified optimal parameters. Ready for single-click execution.';
   const badges = props.contextBadges || ['Audited Model', 'Real-Time Sync'];
-  const quickActions = props.quickActions || [
-    { label: 'Accept & Apply Recommendation', action: 'APPLY' },
-    { label: 'Inspect AI Decision Rationale', action: 'INSPECT' }
-  ];
 
   return (
     <div
       style={{
         backgroundColor: tokens.cardBg,
-        border: `1px solid ${tokens.primary}40`,
+        border: `1px solid ${tokens.cardBorder}`,
         borderRadius: tokens.radius,
         padding: '8px 10px',
         display: 'flex',
@@ -1098,7 +1784,7 @@ function AiCopilotPanelComponent({ cmp, tokens, onExecute, isExecuting, actionNo
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <Bot size={14} color={tokens.primary} />
           <span style={{ fontSize: '0.75rem', fontWeight: 800, color: tokens.cardText }}>
-            {title || 'AI Decision Copilot'}
+            {title || 'AI Decision Assistant'}
           </span>
         </div>
         <span
@@ -1107,9 +1793,9 @@ function AiCopilotPanelComponent({ cmp, tokens, onExecute, isExecuting, actionNo
             fontWeight: 700,
             padding: '1px 5px',
             borderRadius: 10,
-            backgroundColor: `${tokens.primary}20`,
+            backgroundColor: `${tokens.primary}18`,
             color: tokens.primary,
-            border: `1px solid ${tokens.primary}35`
+            border: `1px solid ${tokens.primary}30`
           }}
         >
           {score}% Match
@@ -1143,7 +1829,7 @@ function AiCopilotPanelComponent({ cmp, tokens, onExecute, isExecuting, actionNo
           padding: '6px 8px',
           borderRadius: 4,
           border: `1px solid ${tokens.cardBorder}`,
-          maxHeight: '90px',
+          maxHeight: '85px',
           overflowY: 'auto'
         }}
       >
@@ -1151,44 +1837,80 @@ function AiCopilotPanelComponent({ cmp, tokens, onExecute, isExecuting, actionNo
       </div>
 
       {actionNotice && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.625rem', color: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.15)', padding: '4px 6px', borderRadius: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.625rem', color: tokens.success, backgroundColor: 'rgba(47, 125, 91, 0.12)', padding: '4px 6px', borderRadius: 4 }}>
           <CheckCircle2 size={11} />
           <span>{actionNotice}</span>
         </div>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {quickActions.map((qa, qIdx) => {
-          const isPrimary = qIdx === 0;
-          const label = typeof qa === 'string' ? qa : (qa.label || 'Execute');
+        <button
+          type="button"
+          disabled={isExecuting}
+          onClick={() => onExecute('Accept & Execute Plan')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            padding: '5px 8px',
+            borderRadius: 4,
+            fontSize: '0.675rem',
+            fontWeight: 700,
+            cursor: isExecuting ? 'not-allowed' : 'pointer',
+            border: 'none',
+            backgroundColor: tokens.buttonPrimary,
+            color: '#FFFFFF',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          {isExecuting ? <RefreshCw size={10} className="spin" /> : <Zap size={10} />}
+          Accept & Execute Plan
+        </button>
 
-          return (
-            <button
-              key={qIdx}
-              type="button"
-              disabled={isExecuting}
-              onClick={() => onExecute(qa)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-                padding: '5px 8px',
-                borderRadius: 4,
-                fontSize: '0.675rem',
-                fontWeight: 700,
-                cursor: isExecuting ? 'not-allowed' : 'pointer',
-                border: isPrimary ? 'none' : `1px solid ${tokens.cardBtnSecondaryBorder}`,
-                backgroundColor: isPrimary ? tokens.buttonPrimary : tokens.cardBtnSecondaryBg,
-                color: isPrimary ? '#FFFFFF' : tokens.cardBtnSecondaryText,
-                transition: 'all 0.15s ease'
-              }}
-            >
-              {isExecuting && isPrimary ? <RefreshCw size={10} className="spin" /> : <Zap size={10} />}
-              {label}
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={onInspectRationale}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            padding: '4px 8px',
+            borderRadius: 4,
+            fontSize: '0.65rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            border: `1px solid ${tokens.cardBtnSecondaryBorder}`,
+            backgroundColor: tokens.cardBtnSecondaryBg,
+            color: tokens.cardBtnSecondaryText
+          }}
+        >
+          <Info size={10} />
+          Inspect Model Rationale
+        </button>
+
+        <button
+          type="button"
+          onClick={onExportTelemetry}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            padding: '4px 8px',
+            borderRadius: 4,
+            fontSize: '0.65rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            border: `1px solid ${tokens.cardBtnSecondaryBorder}`,
+            backgroundColor: tokens.cardBtnSecondaryBg,
+            color: tokens.cardBtnSecondaryText
+          }}
+        >
+          <Download size={10} />
+          Export Telemetry Log
+        </button>
       </div>
     </div>
   );
@@ -1199,7 +1921,7 @@ function AiCopilotPanelComponent({ cmp, tokens, onExecute, isExecuting, actionNo
 // ---------------------------------------------------------------------------
 function ChartComponent({ cmp, tokens, onAction }) {
   const { title, props = {} } = cmp;
-  const chartType = props.chartType || 'line';
+  const chartType = props.chartType || 'bar';
   const categories = props.categories || ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
   const series = props.series || [
     { name: 'Primary Metric', data: [40, 65, 90, 120, 110, 85], color: tokens.primary }
@@ -1223,7 +1945,7 @@ function ChartComponent({ cmp, tokens, onAction }) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '0.725rem', fontWeight: 800, color: tokens.cardText }}>
-          {title || 'Telemetry Analytics'}
+          {title || 'Telemetry Velocity Analytics'}
         </span>
         <span style={{ fontSize: '0.575rem', fontWeight: 600, color: tokens.primary, padding: '1px 4px', borderRadius: 3, backgroundColor: `${tokens.primary}18` }}>
           {chartType.toUpperCase()}
@@ -1232,7 +1954,7 @@ function ChartComponent({ cmp, tokens, onAction }) {
 
       {chartType === 'donut' ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '4px 0' }}>
-          <div style={{ position: 'relative', width: 64, height: 64, borderRadius: '50%', background: `conic-gradient(${tokens.primary} 0% 55%, #10B981 55% 85%, #F59E0B 85% 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', width: 64, height: 64, borderRadius: '50%', background: `conic-gradient(${tokens.primary} 0% 55%, ${tokens.success} 55% 85%, ${tokens.warning} 85% 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: tokens.cardBg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 800, color: tokens.cardText }}>100%</span>
             </div>
@@ -1240,7 +1962,7 @@ function ChartComponent({ cmp, tokens, onAction }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.625rem' }}>
             {categories.slice(0, 3).map((cat, idx) => (
               <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, color: tokens.cardTextMuted }}>
-                <div style={{ width: 5, height: 5, borderRadius: 2, backgroundColor: idx === 0 ? tokens.primary : (idx === 1 ? '#10B981' : '#F59E0B') }} />
+                <div style={{ width: 5, height: 5, borderRadius: 2, backgroundColor: idx === 0 ? tokens.primary : (idx === 1 ? tokens.success : tokens.warning) }} />
                 <span>{cat}</span>
               </div>
             ))}
@@ -1303,7 +2025,7 @@ function WorkflowTrackerComponent({ cmp, tokens, onAction }) {
       }}
     >
       <span style={{ fontSize: '0.725rem', fontWeight: 800, color: tokens.cardText }}>
-        {title || 'Workflow Stage Verification'}
+        {title || 'Core Process Execution Lifecycle'}
       </span>
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stages.length}, 1fr)`, gap: 4, alignItems: 'center' }}>
@@ -1338,7 +2060,7 @@ function WorkflowTrackerComponent({ cmp, tokens, onAction }) {
                 >
                   {stg.title}
                 </span>
-                {isDone ? <CheckCircle2 size={10} color="#10B981" /> : (isCurr ? <Zap size={10} color={tokens.primary} /> : <Clock size={10} color={tokens.cardTextMuted} />)}
+                {isDone ? <CheckCircle2 size={10} color={tokens.success} /> : (isCurr ? <Zap size={10} color={tokens.primary} /> : <Clock size={10} color={tokens.cardTextMuted} />)}
               </div>
               <span style={{ fontSize: '0.55rem', color: tokens.cardTextMuted }}>
                 {stg.time || stg.status}
@@ -1352,14 +2074,14 @@ function WorkflowTrackerComponent({ cmp, tokens, onAction }) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. KANBAN BOARD COMPONENT
+// 7. KANBAN BOARD COMPONENT (Interactive State Progression)
 // ---------------------------------------------------------------------------
-function KanbanBoardComponent({ cmp, tokens, onAction }) {
-  const { title, props = {} } = cmp;
-  const columns = props.columns || [
-    { id: '1', title: 'Pending (12)', count: 12, items: ['Task Alpha', 'Task Beta'] },
-    { id: '2', title: 'In Progress (4)', count: 4, items: ['Task Gamma'] },
-    { id: '3', title: 'Completed (84)', count: 84, items: ['Task Delta'] }
+function KanbanBoardComponent({ cmp, tokens, kanbanItems, onMoveItem }) {
+  const { title } = cmp;
+  const columns = [
+    { id: 'triage', title: 'Triage Queue', nextCol: 'processing' },
+    { id: 'processing', title: 'Processing', nextCol: 'verified' },
+    { id: 'verified', title: 'Verified', nextCol: 'triage' }
   ];
 
   return (
@@ -1377,48 +2099,74 @@ function KanbanBoardComponent({ cmp, tokens, onAction }) {
         boxShadow: tokens.cardShadow
       }}
     >
-      <span style={{ fontSize: '0.725rem', fontWeight: 800, color: tokens.cardText }}>
-        {title || 'Kanban Progression'}
-      </span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '0.725rem', fontWeight: 800, color: tokens.cardText }}>
+          {title || 'Workforce & Task Kanban Progression'}
+        </span>
+        <span style={{ fontSize: '0.6rem', color: tokens.cardTextMuted }}>
+          Click card to advance column
+        </span>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns.length}, 1fr)`, gap: 6 }}>
-        {columns.map((col, idx) => (
-          <div
-            key={col.id || idx}
-            style={{
-              backgroundColor: tokens.cardSubtle,
-              borderRadius: 4,
-              padding: '5px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-              border: `1px solid ${tokens.cardBorder}`,
-              maxHeight: '180px',
-              overflowY: 'auto'
-            }}
-          >
-            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: tokens.cardTextMuted }}>
-              {col.title}
-            </span>
-            {col.items.map((item, iIdx) => (
-              <div
-                key={iIdx}
-                onClick={() => onAction && onAction(`Inspect kanban: ${item}`)}
-                style={{
-                  backgroundColor: tokens.cardBg,
-                  border: `1px solid ${tokens.cardBorder}`,
-                  borderRadius: 3,
-                  padding: '4px 6px',
-                  fontSize: '0.65rem',
-                  color: tokens.cardText,
-                  cursor: 'pointer'
-                }}
-              >
-                {item}
+        {columns.map((col) => {
+          const colItems = kanbanItems.filter((k) => k.column === col.id);
+
+          return (
+            <div
+              key={col.id}
+              style={{
+                backgroundColor: tokens.cardSubtle,
+                borderRadius: 4,
+                padding: '5px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                border: `1px solid ${tokens.cardBorder}`,
+                maxHeight: '160px',
+                overflowY: 'auto'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.625rem', fontWeight: 700, color: tokens.cardTextMuted }}>
+                  {col.title}
+                </span>
+                <span style={{ fontSize: '0.6rem', fontWeight: 800, color: tokens.primary }}>
+                  {colItems.length}
+                </span>
               </div>
-            ))}
-          </div>
-        ))}
+
+              {colItems.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => onMoveItem(item.id, col.nextCol)}
+                  title={`Click to move to ${col.nextCol.toUpperCase()}`}
+                  style={{
+                    backgroundColor: tokens.cardBg,
+                    border: `1px solid ${tokens.cardBorder}`,
+                    borderRadius: 3,
+                    padding: '4px 6px',
+                    fontSize: '0.65rem',
+                    color: tokens.cardText,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 4,
+                    transition: 'transform 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = tokens.primary)}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = tokens.cardBorder)}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.title}
+                  </span>
+                  <ChevronRight size={10} color={tokens.primary} style={{ flexShrink: 0 }} />
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

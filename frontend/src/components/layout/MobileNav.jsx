@@ -41,6 +41,20 @@ import {
   LogOut
 } from 'lucide-react';
 
+const SECTION_MESSAGES = {
+  overview: 'Loading workspace overview...',
+  discovery: 'Understanding your business...',
+  analysis: 'Analyzing your requirements...',
+  solution: 'Designing your solution...',
+  architecture: 'Designing the system architecture...',
+  process: 'Mapping your business process...',
+  ux: 'Preparing your experience...',
+  database: 'Structuring your data and APIs...',
+  planning: 'Calculating your implementation effort...',
+  collaboration: 'Connecting your team...',
+  exports: 'Preparing your deliverables...'
+};
+
 export const MobileNav = ({ onOpenAiDrawer }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -451,6 +465,17 @@ export const MobileNav = ({ onOpenAiDrawer }) => {
                       className={`mobile-nav-item ${isActive ? 'active' : ''}`}
                       onClick={() => {
                         setNavDrawerOpen(false);
+                        if (location.pathname !== item.path && item.key !== 'discovery' && item.key !== 'architecture' && item.key !== 'process') {
+                          const msg = SECTION_MESSAGES[item.key] || `Loading ${item.key}...`;
+                          window.dispatchEvent(new CustomEvent('rootforge:loading', {
+                            detail: { active: true, message: msg, key: 'module_transition' }
+                          }));
+                          setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('rootforge:loading', {
+                              detail: { active: false, key: 'module_transition' }
+                            }));
+                          }, 450);
+                        }
                         navigate(item.path);
                       }}
                       aria-current={isActive ? 'page' : undefined}

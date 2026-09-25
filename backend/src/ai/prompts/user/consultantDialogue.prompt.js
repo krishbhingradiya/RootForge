@@ -8,6 +8,7 @@
  */
 
 import { FACT_VS_INFERENCE_RULES } from '../factInferenceGuardrail.js';
+import { LANGUAGE_NAMES } from '../../../utils/languageDetector.js';
 
 export const PROMPT_VERSION = 'consultantDialogue_v2.0';
 
@@ -17,7 +18,7 @@ export const PROMPT_VERSION = 'consultantDialogue_v2.0';
  * @param {object} context Consolidated workspace context from getWorkspaceContext()
  * @param {string} userMessage The current user question
  * @param {Array} conversationHistory Prior conversation messages
- * @param {string} language Target language ('en' | 'hi' | 'gu')
+ * @param {string} language Target language ('en' | 'hi' | 'gu' | 'mr' | 'bn' | 'ta' | 'te' | 'kn' | 'ml' | 'pa' | 'ur')
  * @param {object} constraints Response length and formatting constraints { length, format, pointCount }
  * @returns {{ systemPrompt: string, userPrompt: string, promptVersion: string }}
  */
@@ -29,32 +30,23 @@ export function buildConsultantDialoguePrompt(
   constraints = { length: 'MEDIUM', format: 'DEFAULT', pointCount: null }
 ) {
   const normLang = (language || 'en').toLowerCase().trim();
+  const langMeta = LANGUAGE_NAMES[normLang] || { name: 'English', native: 'English' };
   const ws = context?.workspace || {};
   const domain = context?.domain || 'GENERAL_ENTERPRISE';
   const discovery = context?.discovery || {};
   const docContext = context?.documentContext || {};
 
-  let langInstruction = '';
-  if (normLang === 'gu') {
-    langInstruction = `\n6. CRITICAL LANGUAGE CONSTRAINT (GUJARATI / ગુજરાતી - FIRST CLASS CITIZEN):
-   - You MUST respond entirely in natural, fluent Gujarati (ગુજરાતી).
-   - Use Gujarati for all explanations, reasoning, summaries, recommendations, and questions.
-   - Preserve standard technical terms in English (e.g. API, REST API, PostgreSQL, Redis, FHIR, HL7, OAuth, JWT, JSON, WhatsApp, SMS, Email, Backend, Frontend, Database, Cloud).
-   - Do NOT answer in English. Do not write English paragraphs with occasional Gujarati words.
-   - All human-readable values in JSON ("summary", "fact", "statement", "title", "details", "rationale", "question", "whyItMatters", "suggestedNextAction") MUST be written in natural Gujarati.
+  const langInstruction = `\n6. CRITICAL LANGUAGE CONSTRAINT (PER-MESSAGE DYNAMIC RESOLUTION):
+   CURRENT_USER_LANGUAGE: ${langMeta.name} / ${langMeta.native} (${normLang})
+
+   - You MUST respond strictly in the language of the current user's message (${langMeta.name} / ${langMeta.native}).
+   - If CURRENT_USER_LANGUAGE is Gujarati (gu), you MUST write your entire response in native GUJARATI SCRIPT (ગુજરાતી). Do NOT respond in English and do NOT write in Romanized/English alphabet.
+   - If CURRENT_USER_LANGUAGE is Hindi (hi), you MUST write your entire response in native HINDI DEVANAGARI SCRIPT (हिन्दी). Do NOT respond in English and do NOT write in Romanized/English alphabet.
+   - If CURRENT_USER_LANGUAGE is Marathi (mr), Bengali (bn), Tamil (ta), Telugu (te), Kannada (kn), Malayalam (ml), Punjabi (pa), or Urdu (ur), you MUST write in that language's native script.
+   - Do NOT automatically use the language from previous messages in the conversation history. Treat each message as an independent language event.
+   - Preserve industry standard technical terms, API names, database names, and code identifiers in English (e.g. API, REST API, PostgreSQL, Redis, OAuth, JWT, JSON, WhatsApp, SMS, Email, Backend, Frontend, Database, ER Diagram, Cloud, Microservices).
+   - All human-readable values in JSON ("summary", "fact", "statement", "title", "details", "rationale", "question", "whyItMatters", "suggestedNextAction") MUST be written in natural ${langMeta.name} (${langMeta.native}).
    - Keep all JSON object property keys strictly in English.`;
-  } else if (normLang === 'hi') {
-    langInstruction = `\n6. CRITICAL LANGUAGE CONSTRAINT (HINDI / हिन्दी):
-   - You MUST respond entirely in natural, professional Hindi (हिन्दी).
-   - Use Hindi for all explanations, reasoning, summaries, recommendations, and questions.
-   - Preserve standard technical terms in English (e.g. API, REST API, PostgreSQL, Redis, FHIR, HL7, OAuth, JWT, JSON, WhatsApp, SMS, Email, Backend, Frontend, Database).
-   - Do NOT answer in English.
-   - All human-readable values in JSON MUST be written in natural Hindi.
-   - Keep all JSON object property keys strictly in English.`;
-  } else {
-    langInstruction = `\n6. LANGUAGE CONSTRAINT (ENGLISH):
-   - You MUST answer entirely in fluent, professional English suitable for an enterprise executive consultation.`;
-  }
 
   // Response length instruction
   let lengthInstruction = '';
@@ -95,7 +87,26 @@ export function buildConsultantDialoguePrompt(
 
   // Format modifier
   let formatInstruction = '';
-  if (constraints?.format === 'COMPARISON') {
+  if (constraints?.format === 'SIMPLIFIED') {
+    formatInstruction = `\n8. FORMATTING CONSTRAINT (SIMPLIFICATION / MAKE IT SIMPLE):
+   - The user asked to simplify the concept/answer.
+   - Break down the core mechanism into 3–4 crystal-clear, plain-language points.
+   - Eliminate heavy technical jargon and explain directly in intuitive terms.`;
+  } else if (constraints?.format === 'PROMPT') {
+    formatInstruction = `\n8. FORMATTING CONSTRAINT (PROMPT GENERATION):
+   - The user asked for a prompt.
+   - Directly output a high-quality, production-ready system/user prompt template.
+   - Use clear sections, role definition, task objectives, constraints, and [PLACEHOLDERS] for user inputs.`;
+  } else if (constraints?.format === 'WORKFLOW') {
+    formatInstruction = `\n8. FORMATTING CONSTRAINT (FLOW DIAGRAM / WORKFLOW):
+   - The user asked for a workflow / flow diagram.
+   - Provide a clear, structured step-by-step sequence (e.g. Stage 1 -> Stage 2 -> Stage 3) with explicit actor roles, decision branches, and handoff triggers.`;
+  } else if (constraints?.format === 'DIAGNOSTICS') {
+    formatInstruction = `\n8. FORMATTING CONSTRAINT (FAILURE DIAGNOSTICS / ROOT CAUSE):
+   - The user asked why something is failing or requested debugging guidance.
+   - Clearly identify the primary potential failure modes/root causes based on the context and architecture.
+   - Provide concrete, actionable verification steps and remediation actions.`;
+  } else if (constraints?.format === 'COMPARISON') {
     formatInstruction = `\n8. FORMATTING CONSTRAINT: The user asked to compare options. Structure your answer as a clear comparative analysis, comparing key trade-offs, advantages, and drawbacks.`;
   } else if (constraints?.pointCount) {
     formatInstruction = `\n8. FORMATTING CONSTRAINT: Provide the answer in EXACTLY ${constraints.pointCount} concise points.`;

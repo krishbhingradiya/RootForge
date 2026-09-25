@@ -19,13 +19,19 @@ import {
   AlertCircle,
   AlertTriangle,
   RefreshCw,
-  MoreVertical
+  MoreVertical,
+  Square
 } from 'lucide-react';
 import { AssistantWelcomeCard } from './AssistantWelcomeCard';
 import { isInitialWelcomeMessage, renderFormattedText } from './chatTextFormatter';
 import { StructuredConsultantCard } from './StructuredConsultantCard';
 import { useChatTranslation } from '../../hooks/useChatTranslation';
 import { ChatVoiceInput, ChatMessageSpeaker, speechManager } from './ChatVoiceControl';
+import {
+  LANGUAGE_OPTIONS,
+  LANGUAGE_DISPLAY_MAP,
+  resolveConversationalLanguage
+} from '../../utils/languageDetector';
 
 function formatRelativeDate(dateString, t) {
   if (!dateString) return t ? (t('chat.justNow') || 'Just now') : 'Just now';
@@ -53,20 +59,24 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
     sessionsByScope,
     activeChatIds,
     messagesByChatId,
+    chatSessions,
+    sendingByChat,
     loadSessions,
     loadMessages,
     setActiveChat,
     createNewChat,
     sendMessage,
+    cancelMessage,
     getScopeKey
   } = useChat();
 
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState('auto'); // 'auto' | 11 language codes
+  const [detectedVoiceLanguage, setDetectedVoiceLanguage] = useState(null);
   const [initialLoading, setInitialLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
-  const [error, setError] = useState(null);
+  const [localError, setLocalError] = useState(null);
 
   // Derive active stage from route pathname
   const getStageFromPath = (pathname) => {
@@ -91,6 +101,11 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
   const activeChatId = activeChatIds[scopeKey] || (sessions[0]?.id) || null;
   const messages = (activeChatId && messagesByChatId[activeChatId]) || [];
 
+  // Active session-specific state
+  const activeSessionState = (activeChatId && chatSessions[activeChatId]) || {};
+  const isCurrentGenerating = Boolean(activeSessionState.isGenerating || (activeChatId && sendingByChat[activeChatId]));
+  const error = activeSessionState.error || localError;
+
   // Presentation translation layer
   const { translating, getTranslatedContent, getTranslatedStructured } = useChatTranslation(wsId, messages, lang);
 
@@ -101,7 +116,7 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
       if (!sessions || sessions.length === 0) {
         setInitialLoading(true);
       }
-      setError(null);
+      setLocalError(null);
       loadSessions(wsId, currentStage)
         .then((loadedSessions) => {
           if (!isMounted) return;
@@ -113,7 +128,7 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
         .catch((err) => {
           if (isMounted) {
             console.warn('Could not load AI Copilot sessions:', err);
-            setError({ message: 'Unable to connect to AI' });
+            setLocalError({ message: 'Unable to connect to AI' });
           }
         })
         .finally(() => {
@@ -130,12 +145,12 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
     };
   }, [isOpen, wsId, currentStage]);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages or generation change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, loading]);
+  }, [messages, isCurrentGenerating]);
 
   // Handle back button (Android hardware back via nativeService + Esc key) & native close event
   useEffect(() => {
@@ -154,9 +169,9 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
     };
   }, [isOpen, onClose]);
 
-  // Reset error when switching stage or chat
+  // Reset local error when switching stage or chat
   useEffect(() => {
-    setError(null);
+    setLocalError(null);
   }, [currentStage, activeChatId]);
 
   // Conditional return ONLY AFTER all hooks are called
@@ -174,7 +189,7 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
     speechManager.stop();
     try {
       setCreatingChat(true);
-      setError(null);
+      setLocalError(null);
       const newSession = await createNewChat(wsId, currentStage);
       if (newSession) {
         await loadMessages(wsId, newSession.id);
@@ -182,7 +197,7 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
       setShowHistory(false);
     } catch (err) {
       console.error('Failed to create new chat in drawer:', err);
-      setError({ message: err.message || 'Failed to create new chat session' });
+      setLocalError({ message: err.message || 'Failed to create new chat session' });
     } finally {
       setCreatingChat(false);
     }
@@ -191,52 +206,49 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
   const handleSelectSession = (chatId) => {
     if (!wsId || chatId === activeChatId) return;
     speechManager.stop();
-    setError(null);
+    setLocalError(null);
     setActiveChat(wsId, currentStage, chatId);
     loadMessages(wsId, chatId);
     setShowHistory(false);
   };
 
-  const handleSend = async (textToSend, messageLanguage = null) => {
+  const handleSend = (textToSend = null, messageLanguage = null, forcedDetectedLang = null, inputType = 'text') => {
     const query = textToSend || input;
-    if (!query.trim() || loading || !wsId) return;
+    if (!query || !query.trim() || isCurrentGenerating || !wsId) return;
 
-    const effectiveLang = messageLanguage || lang;
+    const chosenLang = messageLanguage || selectedLanguage;
+    const effectiveLang = chosenLang === 'auto' ? null : chosenLang;
+    const detectedLang = forcedDetectedLang || resolveConversationalLanguage(query.trim(), effectiveLang || lang);
 
     setInput('');
-    setLoading(true);
-    setError(null);
+    setDetectedVoiceLanguage(null);
+    setLocalError(null);
 
-    try {
-      let chatId = activeChatId;
-      if (!chatId) {
-        const newSession = await createNewChat(wsId, currentStage);
-        chatId = newSession?.id;
-      }
+    // Asynchronous dispatch: does NOT block UI or other chats!
+    (async () => {
+      try {
+        let chatId = activeChatId;
+        if (!chatId) {
+          const newSession = await createNewChat(wsId, currentStage);
+          chatId = newSession?.id;
+        }
 
-      if (chatId) {
-        await sendMessage(wsId, currentStage, chatId, query.trim(), effectiveLang, lang);
+        if (chatId) {
+          await sendMessage(
+            wsId,
+            currentStage,
+            chatId,
+            query.trim(),
+            effectiveLang || 'auto',
+            lang,
+            detectedLang,
+            inputType
+          );
+        }
+      } catch (err) {
+        console.error('AI Consultant send background notification:', err.message);
       }
-    } catch (err) {
-      console.error('AI Consultant send failed:', err);
-      const errMsg = (err?.message || '').toLowerCase();
-      let friendlyMessage = t('chat.unableToSend') || 'Unable to send your message. Please try again.';
-      if (err?.status === 403 || errMsg.includes('read-only') || errMsg.includes('viewer') || errMsg.includes('denied') || errMsg.includes('permission')) {
-        friendlyMessage = t('chat.readOnlyAccess') || 'You have read-only access and cannot send messages.';
-      } else if (err?.status === 401 || errMsg.includes('auth') || errMsg.includes('401') || errMsg.includes('token') || errMsg.includes('unauthorized') || errMsg.includes('expired') || errMsg.includes('session')) {
-        friendlyMessage = t('chat.sessionExpired') || 'Your session has expired. Please sign in again.';
-      } else if (errMsg.includes('network') || errMsg.includes('failed to fetch') || errMsg.includes('offline')) {
-        friendlyMessage = t('chat.errorNetwork') || 'Unable to connect to AI. Please check your network connection.';
-      } else if (errMsg.includes('timeout') || errMsg.includes('504') || errMsg.includes('timed out')) {
-        friendlyMessage = t('chat.errorTimeout') || 'AI Consultant request timed out. Please retry.';
-      }
-      setError({
-        message: friendlyMessage,
-        lastQuery: query.trim()
-      });
-    } finally {
-      setLoading(false);
-    }
+    })();
   };
 
   const activeSessionObj = sessions.find(s => s.id === activeChatId);
@@ -353,6 +365,9 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
                     .sort((a, b) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime())
                     .map((s) => {
                       const isActive = s.id === activeChatId;
+                      const sState = chatSessions[s.id] || {};
+                      const isSessionGenerating = Boolean(sState.isGenerating || sendingByChat[s.id]);
+                      const isSessionError = Boolean(sState.status === 'error');
                       const count = s.messageCount || 0;
                       const messageLabel = count === 1 ? (1 + ' ' + (t('chat.messageCountSingle') || 'message')) : (count + ' ' + (t('chat.messagesCount') || 'messages'));
                       return (
@@ -373,15 +388,45 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
                           onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent'; }}
                         >
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{
-                              fontSize: '0.75rem',
-                              fontWeight: isActive ? 700 : 500,
-                              color: isActive ? 'var(--accent-amber-text)' : 'var(--text-primary)',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}>
-                              {s.title}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{
+                                fontSize: '0.75rem',
+                                fontWeight: isActive ? 700 : 500,
+                                color: isActive ? 'var(--accent-amber-text)' : 'var(--text-primary)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {s.title}
+                              </span>
+                              {isSessionGenerating && (
+                                <span style={{
+                                  fontSize: '0.6rem',
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  backgroundColor: 'rgba(217, 119, 6, 0.15)',
+                                  color: 'var(--accent-amber)',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3
+                                }}>
+                                  <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: 'var(--accent-amber)', animation: 'pulse 1s infinite' }} />
+                                  Thinking...
+                                </span>
+                              )}
+                              {isSessionError && (
+                                <span style={{
+                                  fontSize: '0.6rem',
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                  color: '#EF4444',
+                                  fontWeight: 700
+                                }}>
+                                  Error
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 1 }}>
                               {formatRelativeDate(s.lastMessageAt || s.createdAt, t)} • {messageLabel}
@@ -699,20 +744,43 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
                   );
                 })
             )}
-            {loading && (
+            {isCurrentGenerating && (
               <div className="ai-message-row ai-message-row-assistant">
-                <div className="ai-thinking-indicator">
-                  <div className="ai-thinking-icon">
-                    <Sparkles size={14} color="var(--accent-amber)" />
+                <div className="ai-thinking-indicator" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="ai-thinking-icon">
+                      <Sparkles size={14} color="var(--accent-amber)" />
+                    </div>
+                    <span className="ai-thinking-text">
+                      AI Business Consultant is thinking
+                    </span>
+                    <span className="ai-thinking-dots">
+                      <span className="dot dot-1" />
+                      <span className="dot dot-2" />
+                      <span className="dot dot-3" />
+                    </span>
                   </div>
-                  <span className="ai-thinking-text">
-                    AI Business Consultant is thinking
-                  </span>
-                  <span className="ai-thinking-dots">
-                    <span className="dot dot-1" />
-                    <span className="dot dot-2" />
-                    <span className="dot dot-3" />
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => cancelMessage(activeChatId)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 8px',
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                      borderRadius: 4,
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                      color: '#EF4444',
+                      cursor: 'pointer'
+                    }}
+                    title="Stop generating"
+                  >
+                    <Square size={10} fill="currentColor" />
+                    <span>Stop</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -744,7 +812,7 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
                 type="button"
                 onClick={() => {
                   const q = error.lastQuery;
-                  setError(null);
+                  setLocalError(null);
                   handleSend(q);
                 }}
                 className="btn btn-secondary btn-sm"
@@ -755,6 +823,64 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
             )}
           </div>
         )}
+        {/* Language Override Selector & Dynamic Detection Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, padding: '0 4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+              Language:
+            </span>
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              disabled={isCurrentGenerating}
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: 6,
+                backgroundColor: 'var(--bg-subtle)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+              title="Select response language or use Auto Detect"
+              aria-label="Language Mode Selector"
+            >
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.flag} {opt.label} {opt.native !== opt.label ? `(${opt.native})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Real-time Dynamic Language Detection Badge */}
+          {input.trim() && (
+            <span
+              style={{
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: 12,
+                backgroundColor: 'rgba(217, 119, 6, 0.12)',
+                color: 'var(--accent-amber-text, #D97706)',
+                border: '1px solid rgba(217, 119, 6, 0.25)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <Sparkles size={10} color="var(--accent-amber)" />
+              <span>
+                {selectedLanguage !== 'auto'
+                  ? `Forced: ${LANGUAGE_DISPLAY_MAP[selectedLanguage] || selectedLanguage}`
+                  : `Detected: ${LANGUAGE_DISPLAY_MAP[detectedVoiceLanguage || resolveConversationalLanguage(input, lang)] || 'English'}`}
+              </span>
+            </span>
+          )}
+        </div>
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -778,31 +904,47 @@ export const AiConsultantDrawer = ({ isOpen, onClose }) => {
             placeholder={t('chat.placeholder') || t.aiConsultant?.placeholder || 'Ask the AI Consultant...'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={loading}
+            disabled={isCurrentGenerating}
             className="ai-composer-input"
             aria-label="Ask the AI Consultant"
           />
           <ChatVoiceInput
-            lang={lang}
+            lang={selectedLanguage === 'auto' ? 'auto' : selectedLanguage}
             workspaceId={wsId}
             sessionId={activeChatId}
             onInterimPreview={(previewText) => {
               setInput(previewText);
             }}
-            onFinalTranscript={(finalSpokenText) => {
+            onFinalTranscript={(finalSpokenText, detectedLang) => {
               setInput(finalSpokenText);
+              if (detectedLang && selectedLanguage === 'auto') {
+                setDetectedVoiceLanguage(detectedLang);
+              }
             }}
-            disabled={loading}
+            disabled={isCurrentGenerating}
           />
-          <button
-            type="submit"
-            disabled={!input.trim() || loading}
-            className="ai-composer-send-btn"
-            title={t('chat.send') || t.aiConsultant?.send || 'Send'}
-            aria-label="Send message"
-          >
-            <Send size={16} />
-          </button>
+          {isCurrentGenerating ? (
+            <button
+              type="button"
+              onClick={() => cancelMessage(activeChatId)}
+              className="ai-composer-send-btn"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+              title="Stop generating"
+              aria-label="Stop generating"
+            >
+              <Square size={14} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="ai-composer-send-btn"
+              title={t('chat.send') || t.aiConsultant?.send || 'Send'}
+              aria-label="Send message"
+            >
+              <Send size={16} />
+            </button>
+          )}
         </form>
       </div>
     </div>

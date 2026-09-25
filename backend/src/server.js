@@ -29,6 +29,8 @@ import collaborationRoutes from './routes/collaboration.routes.js';
 import versionRoutes from './routes/version.routes.js';
 import exportRoutes from './routes/export.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import voiceRoutes from './routes/voice.routes.js';
+import { twilioService } from './services/twilio.service.js';
 import { aiService } from './ai/aiService.js';
 import { geminiConfig } from './ai/config/geminiConfig.js';
 import { providerRouter } from './ai/providers/providerRouter.js';
@@ -206,6 +208,7 @@ app.use('/api/workspaces', collaborationRoutes);
 app.use('/api/workspaces', versionRoutes);
 app.use('/api/workspaces', exportRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/voice', voiceRoutes);
 
 // Centralized error handling
 app.use((err, req, res, next) => {
@@ -235,6 +238,10 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`provider=${safeGemini.provider}`);
   console.log(`model=${safeGemini.model}`);
   console.log(`apiKeyConfigured=${safeGemini.apiKeyConfigured}`);
+  console.log(`TWILIO_VOICE_CONFIG:`);
+  console.log(`isConfigured=${twilioService.isConfigured()}`);
+  console.log(`phoneNumber=${twilioService.phoneNumber ? twilioService.phoneNumber.replace(/\\d(?=\\d{4})/g, '*') : 'NOT_SET'}`);
+  console.log(`webhookBaseUrl=${twilioService.webhookBaseUrl || 'NOT_SET'}`);
   console.log(`=========================================`);
 });
 

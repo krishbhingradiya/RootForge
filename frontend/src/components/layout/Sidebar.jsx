@@ -3,7 +3,6 @@ import { NavLink, useParams, Link, useLocation } from 'react-router-dom';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { useLoading } from '../../context/LoadingContext';
 import { RootForgeLogo } from '../common/RootForgeLogo';
 import {
   Compass,
@@ -43,13 +42,21 @@ export const Sidebar = () => {
   const { workspaces, currentWorkspace, stages } = useWorkspace();
   const { t, lang } = useLanguage();
   const { user, isAdmin } = useAuth();
-  const { startLoading } = useLoading();
   const location = useLocation();
   const wsId = currentWorkspace?.id || workspaces?.[0]?.id || 'ws-demo-customer-support';
 
   const handleNavClick = (key, path) => {
-    if (location.pathname !== path && key !== 'discovery') {
-      startLoading(SECTION_MESSAGES[key] || 'Thinking...', 'section_nav');
+    // Only trigger animation when navigating to a different top-level module (excluding discovery, architecture, process)
+    if (location.pathname !== path && key !== 'discovery' && key !== 'architecture' && key !== 'process') {
+      const msg = SECTION_MESSAGES[key] || `Loading ${key}...`;
+      window.dispatchEvent(new CustomEvent('rootforge:loading', {
+        detail: { active: true, message: msg, key: 'module_transition' }
+      }));
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('rootforge:loading', {
+          detail: { active: false, key: 'module_transition' }
+        }));
+      }, 450);
     }
   };
 

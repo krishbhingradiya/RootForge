@@ -6,12 +6,25 @@ import { App } from '@capacitor/app';
 import { useLanguage } from '../../context/LanguageContext';
 import { WorkspaceContext } from '../../context/WorkspaceContext';
 import api from '../../services/api';
+import {
+  resolveConversationalLanguage,
+  LANGUAGE_DISPLAY_MAP,
+  SUPPORTED_LANGUAGES
+} from '../../utils/languageDetector';
 
-// Map application language codes to Web Speech API BCP-47 locale tags (Indian English default)
+// Map application language codes to Web Speech API BCP-47 locale tags
 const SPEECH_LANG_MAP = {
   en: 'en-IN',
   hi: 'hi-IN',
-  gu: 'gu-IN'
+  gu: 'gu-IN',
+  mr: 'mr-IN',
+  bn: 'bn-IN',
+  ta: 'ta-IN',
+  te: 'te-IN',
+  kn: 'kn-IN',
+  ml: 'ml-IN',
+  pa: 'pa-IN',
+  ur: 'ur-PK'
 };
 
 /**
@@ -179,14 +192,15 @@ export const ChatVoiceInput = ({
   /**
    * Finalizes transcript buffer and submits to parent callback.
    */
-  const finalizeAndSubmit = useCallback((forceText = null) => {
+  /**
+   * Finalizes transcript buffer and submits to parent callback instantaneously.
+   */
+  const finalizeAndSubmit = useCallback((forceText = null, forcedDetectedLang = null) => {
     clearTimeout(silenceTimerRef.current);
     isListeningRef.current = false;
     isUserStoppingRef.current = true;
 
-    setState('processing');
-
-    const voiceLang = activeVoiceLangRef.current || 'en';
+    const voiceLang = activeVoiceLangRef.current || 'auto';
 
     // Stop recognition engine cleanly
     if (recognitionRef.current) {
@@ -195,37 +209,59 @@ export const ChatVoiceInput = ({
       } catch {}
     }
 
-    // Small delay to allow any pending onresult events to deliver
-    setTimeout(() => {
-      const finalRaw = (forceText || `${accumulatedFinalTextRef.current} ${currentSessionFinalTextRef.current}`).trim();
+    const finalRaw = (forceText || `${accumulatedFinalTextRef.current} ${currentSessionFinalTextRef.current}`).trim();
 
-      // Reset accumulators
-      accumulatedFinalTextRef.current = '';
-      currentSessionFinalTextRef.current = '';
-      currentInterimTextRef.current = '';
+    // Reset accumulators
+    accumulatedFinalTextRef.current = '';
+    currentSessionFinalTextRef.current = '';
+    currentInterimTextRef.current = '';
 
-      if (!finalRaw || finalRaw.length === 0) {
-        console.warn('[VOICE DEBUG] No speech detected in final buffer.');
-        setState('error');
-        setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-        resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
-        return;
-      }
+    if (!finalRaw || finalRaw.length === 0) {
+      console.warn('[VOICE DEBUG] No speech detected in final buffer.');
+      setState('error');
+      setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
+      resetTimerRef.current = setTimeout(() => setState('idle'), 2500);
+      return;
+    }
 
-      console.log('[VOICE DEBUG] Final transcript produced:', `"${finalRaw}"`, 'for voiceLang:', voiceLang);
-      setState('idle');
+    const detectedLang = forcedDetectedLang || resolveConversationalLanguage(finalRaw, voiceLang === 'auto' ? null : voiceLang);
+    console.log('[VOICE DEBUG] Final transcript produced:', `"${finalRaw}"`, 'detectedLang:', detectedLang, 'voiceLang:', voiceLang);
+    setState('idle');
 
-      if (onFinalTranscript) {
-        onFinalTranscript(finalRaw, voiceLang);
-      } else if (onTranscript) {
-        onTranscript(finalRaw);
-      }
-    }, 200);
+    if (onFinalTranscript) {
+      onFinalTranscript(finalRaw, detectedLang, 'voice');
+    } else if (onTranscript) {
+      onTranscript(finalRaw);
+    }
   }, [onFinalTranscript, onTranscript, t]);
 
   /**
+   * Converts Blob to base64 string safely via Promise
+   */
+  const blobToBase64 = (blob) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        try {
+          const res = reader.result;
+          if (typeof res === 'string') {
+            const base64 = res.includes(',') ? res.split(',')[1] : res;
+            resolve(base64);
+          } else {
+            reject(new Error('FileReader result is not a string'));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error('Failed to read audio blob'));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  /**
    * MediaRecorder + Backend Gemini Audio STT.
-   * Primary voice capture method on Capacitor Android/iOS and fallback on Web.
+   * Primary voice capture method on Capacitor Android/iOS and fallback/multilingual on Web.
    */
   const startMediaRecorderFallback = useCallback(async () => {
     if (!hasMediaDevices) {
@@ -238,7 +274,14 @@ export const ChatVoiceInput = ({
       setState('starting');
       setErrorMessage('');
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        }
+      });
       mediaStreamRef.current = stream;
 
       // Select best supported MIME container for this browser/WebView
@@ -265,6 +308,35 @@ export const ChatVoiceInput = ({
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
 
+      // Optional real-time interim preview via WebSpeech while recording
+      let liveRecognition = null;
+      let lastLiveText = '';
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition && !Capacitor.isNativePlatform()) {
+        try {
+          liveRecognition = new SpeechRecognition();
+          liveRecognition.continuous = true;
+          liveRecognition.interimResults = true;
+          const currentReqLang = activeVoiceLangRef.current;
+          liveRecognition.lang = SPEECH_LANG_MAP[currentReqLang] || 'en-IN';
+          liveRecognition.onresult = (e) => {
+            let liveTxt = '';
+            for (let i = 0; i < e.results.length; ++i) {
+              liveTxt += e.results[i][0].transcript + ' ';
+            }
+            const trimmed = liveTxt.trim();
+            if (trimmed) {
+              lastLiveText = trimmed;
+              if (isListeningRef.current && onInterimPreview) {
+                onInterimPreview(trimmed);
+              }
+            }
+          };
+          liveRecognition.onerror = () => {};
+          liveRecognition.start();
+        } catch {}
+      }
+
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           audioChunksRef.current.push(e.data);
@@ -276,107 +348,109 @@ export const ChatVoiceInput = ({
         recordingStartTimeRef.current = Date.now();
         setState('listening');
         setErrorMessage('');
-        console.log(`========== VOICE DEBUG ==========
-Permission: GRANTED
-Audio initialized: YES
-Recorder created: YES (${mimeType})
-Recording started: YES
-=================================`);
       };
 
       recorder.onstop = async () => {
-        stream.getTracks().forEach(track => track.stop());
+        const stopTime = Date.now();
+        if (liveRecognition) {
+          try { liveRecognition.stop(); } catch {}
+        }
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
         mediaStreamRef.current = null;
         setState('processing');
 
-        const durationSec = (Date.now() - recordingStartTimeRef.current) / 1000;
+        const durationSec = (stopTime - recordingStartTimeRef.current) / 1000;
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
 
-        console.log(`========== VOICE DEBUG ==========
-Permission: GRANTED
-Audio initialized: YES
-Recorder created: YES
-Recording started: YES
-Recording duration: ${durationSec.toFixed(1)}s
-Recording stopped: YES
-Audio URI: PRESENT (Blob ${audioBlob.size} bytes)
-Audio size: ${audioBlob.size} bytes
-Transcription request: SENT
-=================================`);
-
-        if (durationSec < 0.4) {
+        if (durationSec < 0.3) {
           setState('error');
           setErrorMessage(t('chat.voice.tooShort') || 'Recording was too short. Please try again.');
-          resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+          resetTimerRef.current = setTimeout(() => setState('idle'), 2000);
           return;
         }
 
         if (audioBlob.size < 200) {
+          if (lastLiveText) {
+            const detected = resolveConversationalLanguage(lastLiveText, activeVoiceLangRef.current);
+            finalizeAndSubmit(lastLiveText, detected);
+            return;
+          }
           setState('error');
           setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-          resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+          resetTimerRef.current = setTimeout(() => setState('idle'), 2000);
           return;
         }
 
         try {
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            const base64Audio = reader.result.split(',')[1];
-            const effectiveWsId = workspaceId || currentWorkspace?.id || 'ws-demo-customer-support';
+          const base64Audio = await blobToBase64(audioBlob);
+          const effectiveWsId = workspaceId || currentWorkspace?.id || 'ws-demo-customer-support';
 
-            console.log('[VOICE DEBUG] Dispatching audio to backend Gemini transcription endpoint...');
-            const res = await api.transcribeAudio(effectiveWsId, {
-              audioData: base64Audio,
-              mimeType,
-              language: activeVoiceLangRef.current || 'en'
-            });
+          const res = await api.transcribeAudio(effectiveWsId, {
+            audioData: base64Audio,
+            mimeType,
+            language: activeVoiceLangRef.current || 'auto'
+          });
 
-            console.log(`========== VOICE DEBUG ==========
-Transcription response: RECEIVED
-Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
-=================================`);
+          const transcriptionLatency = Date.now() - stopTime;
+          console.log(`[Voice STT] Recording stopped -> Transcription received in ${transcriptionLatency}ms`, {
+            transcript: res?.transcript,
+            detectedLanguage: res?.detectedLanguage
+          });
 
-            if (res && res.hasSpeech && res.transcript && res.transcript.trim()) {
-              finalizeAndSubmit(res.transcript.trim());
-            } else {
-              setState('error');
-              setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-              resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
-            }
-          };
+          if (res && res.hasSpeech && res.transcript && res.transcript.trim()) {
+            const detected = res.detectedLanguage || resolveConversationalLanguage(res.transcript.trim(), activeVoiceLangRef.current);
+            finalizeAndSubmit(res.transcript.trim(), detected);
+          } else if (lastLiveText) {
+            console.log('[Voice STT] Gemini returned no transcript, falling back to Web Speech interim text:', lastLiveText);
+            const detected = resolveConversationalLanguage(lastLiveText, activeVoiceLangRef.current);
+            finalizeAndSubmit(lastLiveText, detected);
+          } else {
+            setState('error');
+            setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
+            resetTimerRef.current = setTimeout(() => setState('idle'), 2000);
+          }
         } catch (err) {
-          console.error('[VOICE DEBUG] Server audio transcription failed:', err);
-          setState('error');
-          setErrorMessage(
-            err?.message?.includes('Network')
-              ? (t('chat.voice.network') || 'Voice recognition network error. Please try again.')
-              : (t('chat.voice.error') || 'Voice recognition error. Click to retry.')
-          );
-          resetTimerRef.current = setTimeout(() => setState('idle'), 3500);
+          console.error('[Voice STT] Server audio transcription error:', err);
+          if (lastLiveText) {
+            console.log('[Voice STT] Falling back to Web Speech interim text on error:', lastLiveText);
+            const detected = resolveConversationalLanguage(lastLiveText, activeVoiceLangRef.current);
+            finalizeAndSubmit(lastLiveText, detected);
+          } else {
+            setState('error');
+            setErrorMessage(
+              err?.message?.includes('Network')
+                ? (t('chat.voice.network') || 'Voice recognition network error. Please try again.')
+                : (t('chat.voice.error') || 'Voice recognition error. Click to retry.')
+            );
+            resetTimerRef.current = setTimeout(() => setState('idle'), 2500);
+          }
+        } finally {
+          setState(prev => (prev === 'processing' ? 'idle' : prev));
         }
       };
 
-      recorder.start(500); // 500ms chunk timeslices
+      recorder.start(150); // 150ms chunks for responsive buffering
 
     } catch (err) {
-      console.warn('[VOICE DEBUG] getUserMedia failed:', err);
+      console.warn('[Voice STT] getUserMedia failed:', err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.name === 'SecurityError') {
         setState('permissionDenied');
-        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone permission is required. Please allow microphone access or enable it in Android Settings.');
+        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone permission is required. Please allow microphone access or enable it in Settings.');
         setTimeout(() => {
           setState(prev => (prev === 'permissionDenied' ? 'idle' : prev));
-        }, 4500);
+        }, 3500);
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setState('unsupported');
         setErrorMessage('Microphone is not available on this device.');
       } else {
         setState('error');
         setErrorMessage(t('chat.voice.error') || 'Unable to start the microphone. Please tap to try again.');
-        setTimeout(() => setState('idle'), 3500);
+        setTimeout(() => setState('idle'), 2500);
       }
     }
-  }, [hasMediaDevices, workspaceId, currentWorkspace, finalizeAndSubmit, t]);
+  }, [hasMediaDevices, workspaceId, currentWorkspace, finalizeAndSubmit, t, onInterimPreview]);
 
   /**
    * Starts Web Speech API recognition session with real-time live streaming interim text.
@@ -447,13 +521,6 @@ Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
           } else if (onTranscript) {
             onTranscript(livePreview);
           }
-
-          // Natural pause watchdog: auto-finalize after natural pause
-          clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            console.log('[VOICE DEBUG] Natural pause reached. Finalizing real-time transcript...');
-            finalizeAndSubmit();
-          }, 2600);
         }
       };
 
@@ -466,13 +533,12 @@ Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
           if (!hasText && !isUserStoppingRef.current) {
             setState('error');
             setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-            resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+            resetTimerRef.current = setTimeout(() => setState('idle'), 2000);
           }
           return;
         }
 
         if (event.error === 'not-allowed' || event.error === 'permission-denied') {
-          // Attempt getUserMedia fallback to trigger native Android permission prompt if needed
           if (hasMediaDevices) {
             console.log('[VOICE DEBUG] Web Speech not allowed. Triggering getUserMedia fallback...');
             startMediaRecorderFallback();
@@ -481,7 +547,7 @@ Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
           isListeningRef.current = false;
           setState('permissionDenied');
           setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone access denied. Please allow microphone permissions.');
-          setTimeout(() => setState(prev => (prev === 'permissionDenied' ? 'idle' : prev)), 4000);
+          setTimeout(() => setState(prev => (prev === 'permissionDenied' ? 'idle' : prev)), 3000);
           return;
         }
 
@@ -494,14 +560,14 @@ Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
           isListeningRef.current = false;
           setState('error');
           setErrorMessage(t('chat.voice.network') || 'Voice recognition network error. Please try again.');
-          resetTimerRef.current = setTimeout(() => setState('idle'), 4000);
+          resetTimerRef.current = setTimeout(() => setState('idle'), 2500);
           return;
         }
 
         isListeningRef.current = false;
         setState('error');
         setErrorMessage(t('chat.voice.error') || 'Voice recognition error. Click to retry.');
-        resetTimerRef.current = setTimeout(() => setState('idle'), 3500);
+        resetTimerRef.current = setTimeout(() => setState('idle'), 2000);
       };
 
       recognition.onend = () => {
@@ -534,7 +600,7 @@ Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
         startMediaRecorderFallback();
       } else {
         setState('error');
-        resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+        resetTimerRef.current = setTimeout(() => setState('idle'), 2000);
       }
     }
   }, [lang, hasMediaDevices, onInterimPreview, onTranscript, finalizeAndSubmit, startMediaRecorderFallback, t]);
@@ -555,6 +621,9 @@ Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
       // Allow starting from idle, error, or permissionDenied without permanently locking
       setErrorMessage('');
       if (Capacitor.isNativePlatform()) {
+        startMediaRecorderFallback();
+      } else if (!activeVoiceLangRef.current || activeVoiceLangRef.current === 'auto') {
+        // In Auto-Detect mode, backend Gemini Multimodal STT receives audio and auto-detects language in native script
         startMediaRecorderFallback();
       } else if (hasWebSpeech) {
         startWebSpeech();
@@ -740,15 +809,15 @@ export function getSpeakableMessageText(messageOrData, language = 'en') {
   if (typeof data === 'object' && data !== null && (data.summary || data.confirmedFacts || data.recommendations)) {
     const parts = [];
 
-    // Localized section headings strictly adhering to Section 19
+    // Localized section headings for all 11 supported languages
     const prefixes = {
-      summary: normLang === 'gu' ? 'સારાંશ: ' : normLang === 'hi' ? 'सारांश: ' : 'Summary: ',
-      facts: normLang === 'gu' ? 'પુષ્ટિ થયેલા તથ્યો: ' : normLang === 'hi' ? 'पुष्ट तथ्य: ' : 'Confirmed Facts: ',
-      inferences: normLang === 'gu' ? 'તારણો: ' : normLang === 'hi' ? 'निष्कर्ष: ' : 'Inferences: ',
-      requirements: normLang === 'gu' ? 'ઓળખાયેલી આવશ્યકતાઓ: ' : normLang === 'hi' ? 'आवश्यकताएं: ' : 'Requirements: ',
-      recommendations: normLang === 'gu' ? 'ભલામણો: ' : normLang === 'hi' ? 'सिफारिशें: ' : 'Recommendations: ',
-      nextSteps: normLang === 'gu' ? 'આગળના પગલાં: ' : normLang === 'hi' ? 'अगले कदम: ' : 'Next Steps: ',
-      questions: normLang === 'gu' ? 'ખુલ્લા પ્રશ્નો: ' : normLang === 'hi' ? 'खुले प्रश्न: ' : 'Open Questions: '
+      summary: normLang === 'gu' ? 'સારાંશ: ' : normLang === 'hi' ? 'सारांश: ' : normLang === 'mr' ? 'सारांश: ' : normLang === 'bn' ? 'সারসংক্ষেপ: ' : normLang === 'ta' ? 'சுருக்கம்: ' : normLang === 'te' ? 'సారాంశం: ' : normLang === 'kn' ? 'ಸಾರಾಂಶ: ' : normLang === 'ml' ? 'സംഗ്രഹം: ' : normLang === 'pa' ? 'ਸੰਖੇਪ: ' : normLang === 'ur' ? 'خلاصہ: ' : 'Summary: ',
+      facts: normLang === 'gu' ? 'પુષ્ટિ થયેલા તથ્યો: ' : normLang === 'hi' ? 'पुष्ट तथ्य: ' : normLang === 'mr' ? 'पुष्टी केलेले तथ्य: ' : normLang === 'bn' ? 'নিশ্চিত তথ্য: ' : normLang === 'ta' ? 'உறுதிப்படுத்தப்பட்ட உண்மைகள்: ' : normLang === 'te' ? 'ధృవీకరించబడిన వాస్తవాలు: ' : normLang === 'kn' ? 'ದೃಢೀಕರಿಸಿದ ಸಂಗತಿಗಳು: ' : normLang === 'ml' ? 'സ്ഥിരീകരിച്ച വസ്തുതകൾ: ' : normLang === 'pa' ? 'ਪੁਸ਼ਟੀ ਕੀਤੇ ਤੱਥ: ' : normLang === 'ur' ? 'تصدیق شدہ حقائق: ' : 'Confirmed Facts: ',
+      inferences: normLang === 'gu' ? 'તારણો: ' : normLang === 'hi' ? 'निष्कर्ष: ' : normLang === 'mr' ? 'निष्कर्ष: ' : normLang === 'bn' ? 'সিদ্ধান্ত: ' : normLang === 'ta' ? 'முடிவுகள்: ' : normLang === 'te' ? 'ముగింపులు: ' : normLang === 'kn' ? 'ತೀರ್ಮಾನಗಳು: ' : normLang === 'ml' ? 'നിഗമനങ്ങൾ: ' : normLang === 'pa' ? 'ਸਿੱਟੇ: ' : normLang === 'ur' ? 'نتائج: ' : 'Inferences: ',
+      requirements: normLang === 'gu' ? 'ઓળખાયેલી આવશ્યકતાઓ: ' : normLang === 'hi' ? 'आवश्यकताएं: ' : normLang === 'mr' ? 'आवश्यकता: ' : normLang === 'bn' ? 'প্রয়োজনীয়তা: ' : normLang === 'ta' ? 'தேவைகள்: ' : normLang === 'te' ? 'అవసరాలు: ' : normLang === 'kn' ? 'ಅಗತ್ಯತೆಗಳು: ' : normLang === 'ml' ? 'ആവശ്യകതകൾ: ' : normLang === 'pa' ? 'ਲੋੜਾਂ: ' : normLang === 'ur' ? 'ضروریات: ' : 'Requirements: ',
+      recommendations: normLang === 'gu' ? 'ભલામણો: ' : normLang === 'hi' ? 'सिफारिशें: ' : normLang === 'mr' ? 'शिफारसी: ' : normLang === 'bn' ? 'সুপারিশ: ' : normLang === 'ta' ? 'பரிந்துரைகள்: ' : normLang === 'te' ? 'సిఫార్సులు: ' : normLang === 'kn' ? 'ಶಿಫಾರಸುಗಳು: ' : normLang === 'ml' ? 'ശുപാർശകൾ: ' : normLang === 'pa' ? 'ਸਿਫ਼ਾਰਸ਼ਾਂ: ' : normLang === 'ur' ? 'تجاویز: ' : 'Recommendations: ',
+      nextSteps: normLang === 'gu' ? 'આગળના પગલાં: ' : normLang === 'hi' ? 'अगले कदम: ' : normLang === 'mr' ? 'पुढील पावले: ' : normLang === 'bn' ? 'পরবর্তী পদক্ষেপ: ' : normLang === 'ta' ? 'அடுத்த படிகள்: ' : normLang === 'te' ? 'తదుపరి దశలు: ' : normLang === 'kn' ? 'ಮುಂದಿನ ಹಂತಗಳು: ' : normLang === 'ml' ? 'അടുത്ത ഘട്ടങ്ങൾ: ' : normLang === 'pa' ? 'ਅਗਲੇ ਕਦਮ: ' : normLang === 'ur' ? 'اگلے اقدامات: ' : 'Next Steps: ',
+      questions: normLang === 'gu' ? 'ખુલ્લા પ્રશ્નો: ' : normLang === 'hi' ? 'खुले प्रश्न: ' : normLang === 'mr' ? 'खुले प्रश्न: ' : normLang === 'bn' ? 'উন্মুক্ত প্রশ্ন: ' : normLang === 'ta' ? 'திறந்த கேள்விகள்: ' : normLang === 'te' ? 'ఓపెన్ ప్రశ్నలు: ' : normLang === 'kn' ? 'ತೆರೆದ ಪ್ರಶ್ನೆಗಳು: ' : normLang === 'ml' ? 'തുറന്ന ചോദ്യങ്ങൾ: ' : normLang === 'pa' ? 'ਖੁੱਲ੍ਹੇ ਸਵਾਲ: ' : normLang === 'ur' ? 'کھلے سوالات: ' : 'Open Questions: '
     };
 
     if (data.summary) {
@@ -884,18 +953,27 @@ export function splitIntoLanguageSegments(text, baseLang = 'en') {
 
     const hasGu = /[\u0A80-\u0AFF]/.test(part);
     const hasHi = /[\u0900-\u097F]/.test(part);
+    const hasBn = /[\u0980-\u09FF]/.test(part);
+    const hasTa = /[\u0B80-\u0BFF]/.test(part);
+    const hasTe = /[\u0C00-\u0C7F]/.test(part);
+    const hasKn = /[\u0C80-\u0CFF]/.test(part);
+    const hasMl = /[\u0D00-\u0D7F]/.test(part);
+    const hasPa = /[\u0A00-\u0A7F]/.test(part);
+    const hasUr = /[\u0600-\u06FF]/.test(part);
     const hasLatin = /[a-zA-Z]/.test(part);
 
     let partLang = currentLang || baseLang;
-    if (hasGu) {
-      partLang = 'gu';
-    } else if (hasHi) {
-      partLang = 'hi';
-    } else if (hasLatin) {
-      partLang = 'en';
-    } else {
-      partLang = currentLang || baseLang;
-    }
+    if (hasGu) partLang = 'gu';
+    else if (hasBn) partLang = 'bn';
+    else if (hasTa) partLang = 'ta';
+    else if (hasTe) partLang = 'te';
+    else if (hasKn) partLang = 'kn';
+    else if (hasMl) partLang = 'ml';
+    else if (hasPa) partLang = 'pa';
+    else if (hasUr) partLang = 'ur';
+    else if (hasHi) partLang = 'hi';
+    else if (hasLatin) partLang = 'en';
+    else partLang = currentLang || baseLang;
 
     if (currentLang === null) {
       currentLang = partLang;
@@ -921,9 +999,7 @@ export function splitIntoLanguageSegments(text, baseLang = 'en') {
 /**
  * Global Speech Synthesis & Audio Controller.
  * Ensures single active utterance across the entire application:
- * - Switching messages cancels previous speech.
- * - Changing language immediately stops active speech.
- * - Level 1: Native browser Web Speech API when valid locale voice is present.
+ * - Level 1: Native browser Web Speech API when valid locale voice is present in OS.
  * - Level 2: Server-side Cloud TTS fallback with authentic pronunciation and mixed-language segmentation.
  * - Prevents fake voices: never uses English voice to mispronounce Indic languages.
  */
@@ -971,29 +1047,9 @@ class GlobalSpeechManager {
     }
     const voices = this.voices || [];
     const normLang = (lang || 'en').toLowerCase().trim();
-    const normLocale = (targetLocale || 'en-IN').toLowerCase().trim();
+    const normLocale = (targetLocale || SPEECH_LANG_MAP[normLang] || 'en-IN').toLowerCase().trim();
 
-    // 1. Strict Gujarati Voice Detection — NEVER match English voice
-    if (normLang === 'gu') {
-      const guVoice = voices.find(v => {
-        const vLang = (v?.lang || '').toLowerCase();
-        const vName = (v?.name || '').toLowerCase();
-        return (vLang.startsWith('gu') || vName.includes('gujarat')) && !vLang.startsWith('en');
-      });
-      return guVoice || null;
-    }
-
-    // 2. Strict Hindi Voice Detection — NEVER match English voice
-    if (normLang === 'hi') {
-      const hiVoice = voices.find(v => {
-        const vLang = (v?.lang || '').toLowerCase();
-        const vName = (v?.name || '').toLowerCase();
-        return (vLang.startsWith('hi') || vName.includes('hindi')) && !vLang.startsWith('en');
-      });
-      return hiVoice || null;
-    }
-
-    // 3. Indian English Voice Detection (Prioritize authentic Indian English tone/accent)
+    // 1. Indian English Voice Detection
     if (normLang === 'en') {
       const indianVoice = voices.find(v => {
         const vLang = (v?.lang || '').toLowerCase().replace(/_/g, '-');
@@ -1012,15 +1068,26 @@ class GlobalSpeechManager {
         );
       });
       if (indianVoice) return indianVoice;
-
-      // When no native Indian English voice exists on user's device, return null
-      // so ChatMessageSpeaker uses Level 2 Server-Side Cloud Indian English TTS!
       return null;
     }
 
-    let matched = voices.find(v => (v?.lang || '').toLowerCase() === normLocale);
-    if (matched) return matched;
-    return voices.find(v => (v?.lang || '').toLowerCase().startsWith('en')) || null;
+    // 2. Strict non-English Voice Detection for Indic Languages
+    const langVoice = voices.find(v => {
+      const vLang = (v?.lang || '').toLowerCase().replace(/_/g, '-');
+      const vName = (v?.name || '').toLowerCase();
+      const codeMatches = vLang.startsWith(`${normLang}-`) || vLang === normLang;
+      const notEnglish = !vLang.startsWith('en');
+      return (codeMatches || vName.includes(normLang)) && notEnglish;
+    });
+
+    if (langVoice) return langVoice;
+
+    let matchedLocale = voices.find(v => (v?.lang || '').toLowerCase() === normLocale);
+    if (matchedLocale && !matchedLocale.lang.toLowerCase().startsWith('en')) {
+      return matchedLocale;
+    }
+
+    return null;
   }
 
   hasNativeVoiceFor(lang) {
@@ -1033,7 +1100,7 @@ class GlobalSpeechManager {
   }
 
   hasVoiceFor(lang) {
-    // Guaranteed cloud TTS fallback for all languages (Indian English en-IN, Gujarati gu, Hindi hi)
+    // Guaranteed cloud TTS fallback for all 11 languages
     return true;
   }
 
@@ -1116,16 +1183,9 @@ class GlobalSpeechManager {
     const speakableText = getSpeakableMessageText(data || text, lang);
     if (!speakableText) return;
 
-    let effectiveLang = (lang || 'en').toLowerCase().trim();
-    const hasGu = /[\u0A80-\u0AFF]/.test(speakableText);
-    const hasHi = /[\u0900-\u097F]/.test(speakableText);
-    if (hasGu) {
-      effectiveLang = 'gu';
-    } else if (hasHi) {
-      effectiveLang = 'hi';
-    } else if (effectiveLang === 'gu' || effectiveLang === 'hi') {
-      effectiveLang = 'en';
-    }
+    const effectiveLang = (lang && lang !== 'auto')
+      ? lang
+      : resolveConversationalLanguage(speakableText, 'en');
 
     const rawChunks = splitIntoSpeakableChunks(speakableText);
     if (rawChunks.length === 0) return;
@@ -1190,19 +1250,23 @@ class GlobalSpeechManager {
 
 export const speechManager = new GlobalSpeechManager();
 
+const SPEAKER_LABELS = {
+  en: { idle: 'Listen', generating: 'Generating...', playing: 'Stop', error: 'Playback failed' },
+  hi: { idle: 'सुनें', generating: 'तैयार हो रहा है...', playing: 'रोकें', error: 'आवाज चलाई नहीं जा सकी' },
+  gu: { idle: 'સાંભળો', generating: 'તૈયાર થઈ રહ્યું છે...', playing: 'બંધ કરો', error: 'અવાજ ચલાવી શકાયો નથી' },
+  mr: { idle: 'ऐका', generating: 'तयार होत आहे...', playing: 'थांबवा', error: 'प्लेबॅक अयशस्वी' },
+  bn: { idle: 'শুনুন', generating: 'তৈরি হচ্ছে...', playing: 'থামান', error: 'প্লেব্যাক ব্যর্থ' },
+  ta: { idle: 'கேளுங்கள்', generating: 'தயாராகிறது...', playing: 'நிறுத்துங்கள்', error: 'பின்னணி தோல்வி' },
+  te: { idle: 'వినండి', generating: 'సిద్ధమవుతోంది...', playing: 'ఆపండి', error: 'ప్లేబ్యాక్ విఫలమైంది' },
+  kn: { idle: 'ಕೇಳಿ', generating: 'ಸಿದ್ಧವಾಗುತ್ತಿದೆ...', playing: 'ನಿಲ್ಲಿಸಿ', error: 'ಪ್ಲೇಬ್ಯಾಕ್ ವಿಫಲವಾಗಿದೆ' },
+  ml: { idle: 'കേൾക്കൂ', generating: 'തയ്യാറാക്കുന്നു...', playing: 'നിർത്തൂ', error: 'പ്ലേബാക്ക് പരാജയപ്പെട്ടു' },
+  pa: { idle: 'ਸੁਣੋ', generating: 'ਤਿਆਰ ਹੋ ਰਿਹਾ ਹੈ...', playing: 'ਰੋਕੋ', error: 'ਪਲੇਅਬੈਕ ਅਸਫਲ ਰਿਹਾ' },
+  ur: { idle: 'سنیں', generating: 'تیار ہو رہا ہے...', playing: 'روکیں', error: 'پلے بیک ناکام ہو گیا' }
+};
+
 /**
  * Enterprise Assistant Message Text-to-Speech Playback Control.
  * Guarantees complete spoken responses in the message's natural language.
- * 
- * 2-Tier Architecture:
- * - Level 1: Native browser voice synthesis if gu-IN voice exists in OS.
- * - Level 2: Server-side Cloud TTS fallback with authentic pronunciation and mixed-language technical term handling.
- * 
- * UX States (Section 20):
- * - IDLE: 🔊 Listen / 🔊 સાંભળો / 🔊 सुनें
- * - GENERATING: ⏳ તૈયાર થઈ રહ્યું છે... / ⏳ Generating...
- * - PLAYING: ⏹ બંધ કરો / ⏹ Stop / ⏹ रोकें
- * - ERROR: ⚠ અવાજ ચલાવી શકાયો નથી / ⚠ Playback failed
  */
 export const ChatMessageSpeaker = ({
   messageId = null,
@@ -1230,7 +1294,7 @@ export const ChatMessageSpeaker = ({
     return () => unsubscribe();
   }, [speakerId]);
 
-  // Stop active speech immediately if language switches (Section 23)
+  // Stop active speech immediately if language switches
   useEffect(() => {
     if (isSpeaking) {
       speechManager.stop();
@@ -1239,19 +1303,11 @@ export const ChatMessageSpeaker = ({
 
   // Determine effective conversational language of this message:
   const rawContent = typeof text === 'string' ? text : JSON.stringify(data || '');
-  const hasGuChars = /[\u0A80-\u0AFF]/.test(rawContent);
-  const hasHiChars = /[\u0900-\u097F]/.test(rawContent);
+  const messageExplicitLang = data?.responseLanguage || data?.detectedLanguage || data?.language;
+  const normLang = messageExplicitLang && messageExplicitLang !== 'auto' && SUPPORTED_LANGUAGES.includes(messageExplicitLang)
+    ? messageExplicitLang
+    : resolveConversationalLanguage(rawContent, lang);
 
-  let effectiveLang = (lang || 'en').toLowerCase().trim();
-  if (hasGuChars) {
-    effectiveLang = 'gu';
-  } else if (hasHiChars) {
-    effectiveLang = 'hi';
-  } else if (effectiveLang === 'gu' || effectiveLang === 'hi') {
-    effectiveLang = 'en';
-  }
-
-  const normLang = effectiveLang;
   const hasNativeVoice = speechManager.hasNativeVoiceFor(normLang);
 
   const handleToggleSpeak = async (e) => {
@@ -1319,46 +1375,24 @@ export const ChatMessageSpeaker = ({
     }
   };
 
-  // Section 20 Button labels:
-  const idleLabel = normLang === 'gu'
-    ? 'સાંભળો'
-    : normLang === 'hi'
-    ? 'सुनें'
-    : 'Listen';
-
-  const generatingLabel = normLang === 'gu'
-    ? 'તૈયાર થઈ રહ્યું છે...'
-    : normLang === 'hi'
-    ? 'तैयार हो रहा है...'
-    : 'Generating...';
-
-  const playingLabel = normLang === 'gu'
-    ? 'બંધ કરો'
-    : normLang === 'hi'
-    ? 'रोकें'
-    : 'Stop';
-
-  const errorLabel = normLang === 'gu'
-    ? 'અવાજ ચલાવી શકાયો નથી'
-    : normLang === 'hi'
-    ? 'आवाज चलाई नहीं जा सकी'
-    : 'Playback failed';
+  const labels = SPEAKER_LABELS[normLang] || SPEAKER_LABELS.en;
+  const langNativeName = LANGUAGE_DISPLAY_MAP[normLang] || 'English';
 
   const currentLabel = errorState === 'TTS_FAILED'
-    ? errorLabel
+    ? labels.error
     : isGenerating
-    ? generatingLabel
+    ? labels.generating
     : isSpeaking
-    ? playingLabel
-    : idleLabel;
+    ? labels.playing
+    : labels.idle;
 
   const tooltip = errorState === 'TTS_FAILED'
-    ? errorLabel
+    ? labels.error
     : isGenerating
-    ? generatingLabel
+    ? labels.generating
     : isSpeaking
-    ? playingLabel
-    : `${idleLabel} (${normLang === 'gu' ? 'ગુજરાતી' : normLang === 'hi' ? 'हिन्दी' : 'English'})`;
+    ? labels.playing
+    : `${labels.idle} (${langNativeName})`;
 
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -1402,7 +1436,7 @@ export const ChatMessageSpeaker = ({
         ) : (
           <Volume2 size={13} />
         )}
-        <span>{isSpeaking ? playingLabel : idleLabel}</span>
+        <span>{currentLabel}</span>
       </button>
     </div>
   );

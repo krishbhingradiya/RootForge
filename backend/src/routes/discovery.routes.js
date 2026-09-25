@@ -108,22 +108,29 @@ router.post('/:id/discovery/messages', authenticate, async (req, res) => {
     const workspaceId = req.params.id;
     await assertWorkspaceWriteAccess(workspaceId, req.user);
 
-    const { content, chatId: specifiedChatId, clientRequestId = null } = req.body;
-    const uiLanguage = (req.body.uiLanguage || req.body.language || req.query.language || 'en').toLowerCase().trim();
+    const { content, chatId: specifiedChatId, clientRequestId = null, detectedLanguage: clientDetectedLang = null, inputType = 'text' } = req.body;
+    const requestedLanguage = (req.body.language || req.body.uiLanguage || req.query.language || 'auto').toLowerCase().trim();
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Message content is required.' });
     }
 
-    const conversationalLanguage = resolveConversationalLanguage(content, uiLanguage);
+    const conversationalLanguage = resolveConversationalLanguage(content, requestedLanguage);
+    const detectedLanguage = clientDetectedLang && clientDetectedLang !== 'auto'
+      ? clientDetectedLang
+      : resolveConversationalLanguage(content, null);
 
-    const context = await getWorkspaceContext(workspaceId, req.user);
+    const wantsStream = req.query.stream === 'true' || req.body.stream === true || req.headers.accept?.includes('text/event-stream');
+
+    // Resolve target conversation & context in parallel
+    const [context, targetSession] = await Promise.all([
+      getWorkspaceContext(workspaceId, req.user, { query: content.trim() }),
+      specifiedChatId
+        ? chatSessionService.getChatSessionWithMessages(specifiedChatId, workspaceId)
+        : null
+    ]);
+
     const workspace = context.workspace;
-
-    // Resolve target conversation
-    let conversation = null;
-    if (specifiedChatId) {
-      conversation = await chatSessionService.getChatSessionWithMessages(specifiedChatId, workspace.id);
-    }
+    let conversation = targetSession;
     if (!conversation) {
       conversation = await chatSessionService.getOrCreateDefaultSession(workspace.id, 'discovery', workspace);
     }
@@ -153,17 +160,32 @@ router.post('/:id/discovery/messages', authenticate, async (req, res) => {
         if (existingAssistantMsg.structuredContent) {
           try { structured = JSON.parse(existingAssistantMsg.structuredContent); } catch {}
         }
-        return res.json({
+        const dupResponse = {
           userMessage,
           assistantMessage: existingAssistantMsg,
           structured,
           relevance: 'RELATED',
           language: conversationalLanguage,
           conversationalLanguage,
-          uiLanguage,
+          detectedLanguage,
+          responseLanguage: conversationalLanguage,
+          inputType,
           isDuplicate: true,
           _perf: { totalMs: Date.now() - tTotalStart, cached: true }
-        });
+        };
+
+        if (wantsStream) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          res.write(`event: start\ndata: ${JSON.stringify({ userMessage, chatId: targetChatId, clientRequestId })}\n\n`);
+          const existingText = existingAssistantMsg.content;
+          res.write(`event: chunk\ndata: ${JSON.stringify({ delta: existingText, text: existingText })}\n\n`);
+          res.write(`event: done\ndata: ${JSON.stringify(dupResponse)}\n\n`);
+          return res.end();
+        }
+
+        return res.json(dupResponse);
       }
     }
 
@@ -178,7 +200,78 @@ router.post('/:id/discovery/messages', authenticate, async (req, res) => {
       content: m.content
     }));
 
-    // Generate AI Consultant response
+    // Streaming path
+    if (wantsStream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      res.write(`event: start\ndata: ${JSON.stringify({ userMessage, chatId: targetChatId, clientRequestId })}\n\n`);
+
+      const tProviderStart = Date.now();
+      let firstTokenMs = null;
+
+      const aiResponse = await relevanceGuard.streamConsultantAnswer(
+        context,
+        content.trim(),
+        conversationHistory,
+        conversationalLanguage,
+        {
+          onFirstToken: (ftMs) => {
+            firstTokenMs = ftMs;
+          },
+          onChunk: ({ delta, accumulatedText }) => {
+            res.write(`event: chunk\ndata: ${JSON.stringify({ delta, text: accumulatedText })}\n\n`);
+          }
+        }
+      );
+      const providerMs = Date.now() - tProviderStart;
+
+      // Persist assistant message
+      const tPersistStart = Date.now();
+      const assistantMessage = await chatSessionService.saveAssistantMessage(
+        targetChatId,
+        aiResponse.message,
+        aiResponse.structured,
+        aiResponse.suggestedAction
+      );
+      const persistenceMs = Date.now() - tPersistStart;
+
+      // Activity log (non-blocking)
+      prisma.activityLog.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: req.user.id,
+          userName: req.user.name,
+          action: 'DISCOVERY',
+          details: `Consulted on: "${content.slice(0, 60)}..."`
+        }
+      }).catch(err => console.warn('Non-critical activity log error:', err.message));
+
+      const donePayload = {
+        userMessage,
+        assistantMessage,
+        structured: aiResponse.structured || null,
+        relevance: aiResponse.relevance || 'RELATED',
+        language: aiResponse.language || conversationalLanguage,
+        conversationalLanguage: aiResponse.language || conversationalLanguage,
+        detectedLanguage,
+        responseLanguage: aiResponse.language || conversationalLanguage,
+        inputType,
+        _perf: {
+          firstTokenMs: firstTokenMs || aiResponse._perf?.firstTokenMs,
+          providerMs,
+          persistenceMs,
+          totalMs: Date.now() - tTotalStart
+        }
+      };
+
+      res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+      return res.end();
+    }
+
+    // Standard Non-Streaming Path
     const tProviderStart = Date.now();
     const aiResponse = await aiService.answerDiscoveryQuestion(
       context,
@@ -216,7 +309,9 @@ router.post('/:id/discovery/messages', authenticate, async (req, res) => {
       relevance: aiResponse.relevance || 'RELATED',
       language: aiResponse.language || conversationalLanguage,
       conversationalLanguage: aiResponse.language || conversationalLanguage,
-      uiLanguage,
+      detectedLanguage,
+      responseLanguage: aiResponse.language || conversationalLanguage,
+      inputType,
       _perf: {
         providerMs,
         persistenceMs,

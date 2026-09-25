@@ -24,7 +24,7 @@ import { UxExportModal } from './components/UxExportModal';
 import { UxCollaborationPanel } from './components/UxCollaborationPanel';
 
 import { parseDirectiveToPatch, applyUiPatch } from './services/uiPatchEngine';
-import { THEME_ARCHETYPES, createDefaultUiSpecification } from './services/dynamicUiSchema';
+import { THEME_ARCHETYPES, createDefaultUiSpecification, validateAndRepairUiSpecification } from './services/dynamicUiSchema';
 
 export const UxDesignerPage = () => {
   const { id } = useParams();
@@ -51,7 +51,7 @@ export const UxDesignerPage = () => {
 
   // Requirement & AI Understanding States
   const [requirementText, setRequirementText] = useState('');
-  const [selectedTheme, setSelectedTheme] = useState('enterprise-slate');
+  const [selectedTheme, setSelectedTheme] = useState('warm-cream');
   const [understanding, setUnderstanding] = useState(null);
 
   // Modals
@@ -146,13 +146,26 @@ export const UxDesignerPage = () => {
         ...(uxDesign.designTokens || {}),
         activeThemeId: themeId
       };
+      const updatedScreens = (uxDesign.screens || []).map((s) => {
+        if (s.uiSpecification) {
+          const { repairedSpec } = validateAndRepairUiSpecification(s.uiSpecification, themeId);
+          return {
+            ...s,
+            uiSpecification: repairedSpec
+          };
+        }
+        return s;
+      });
+
       await api.updateUX(id, {
-        designTokens: JSON.stringify(updatedTokens)
+        designTokens: JSON.stringify(updatedTokens),
+        screens: JSON.stringify(updatedScreens)
       });
       setUxDesign((prev) => ({
         ...prev,
         activeThemeId: themeId,
-        designTokens: updatedTokens
+        designTokens: updatedTokens,
+        screens: updatedScreens
       }));
       const arch = DESIGN_ARCHETYPES.find((a) => a.id === themeId);
       showToast(`Switched design archetype to ${arch?.name || themeId}`);

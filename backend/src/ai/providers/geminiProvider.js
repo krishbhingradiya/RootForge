@@ -313,16 +313,239 @@ export class GeminiProvider {
   }
 
   /**
-   * Lightweight non-destructive ping for provider health checks.
-   * Safe for diagnostic endpoint and startup verifications.
+   * Executes a native Gemini streamGenerateContent call using Server-Sent Events (SSE).
+   * Progressively calls onChunk with incremental deltas as they arrive from the model.
    * 
-   * @param {object} [params]
+   * @param {object} params
    * @param {string} [params.apiKey]
    * @param {string} [params.model]
+   * @param {string} [params.systemPrompt]
+   * @param {string} params.userPrompt
+   * @param {number} [params.temperature]
+   * @param {number} [params.maxTokens]
    * @param {number} [params.timeoutMs]
-   * @returns {Promise<{ provider: string, model: string, configured: boolean, reachable: boolean, authenticated: boolean, latencyMs: number, status: string, errorCategory?: string, errorMessage?: string }>}
+   * @param {AbortSignal} [params.signal]
+   * @param {Function} [params.onChunk] Callback invoked with { delta, accumulatedText }
+   * @param {Function} [params.onFirstToken] Callback invoked on receipt of first token
+   * @returns {Promise<{ text: string, provider: string, model: string, usage: object, firstTokenMs: number, totalMs: number }>}
    */
-  async ping(params = {}) {
+  async streamChatCompletion({
+    apiKey: explicitKey,
+    model: requestedModel,
+    systemPrompt,
+    userPrompt,
+    temperature,
+    maxTokens,
+    timeoutMs,
+    signal,
+    onChunk,
+    onFirstToken
+  }) {
+    const apiKey = typeof explicitKey === 'string' ? explicitKey : geminiConfig.getApiKey();
+
+    if (!apiKey) {
+      const err = new Error('Google Gemini API key is missing. Verify AI_API_KEY environment variable in backend/.env.');
+      err.code = 'KEY_MISSING';
+      err.provider = 'gemini';
+      throw err;
+    }
+
+    const effectiveModel = geminiConfig.getModel(requestedModel);
+    const candidateModels = geminiConfig.getCandidateModels(effectiveModel);
+    const effectiveTemp = typeof temperature === 'number' ? temperature : geminiConfig.getTemperature();
+    const effectiveMaxTokens = typeof maxTokens === 'number' ? maxTokens : geminiConfig.getMaxTokens();
+    const effectiveTimeout = Math.min(typeof timeoutMs === 'number' ? timeoutMs : geminiConfig.getTimeoutMs(), 25000);
+
+    const tStart = Date.now();
+    let firstTokenMs = null;
+    let accumulatedText = '';
+    let lastError = null;
+
+    for (let i = 0; i < candidateModels.length; i++) {
+      const currentModel = candidateModels[i];
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+
+      // Connect external abort signal if provided
+      if (signal) {
+        signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:streamGenerateContent?alt=sse`;
+
+      const requestBody = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: userPrompt }]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: effectiveTemp,
+          maxOutputTokens: effectiveMaxTokens
+        }
+      };
+
+      if (systemPrompt && systemPrompt.trim()) {
+        requestBody.system_instruction = {
+          parts: [{ text: systemPrompt }]
+        };
+      }
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '');
+          let parsedError = null;
+          try {
+            parsedError = JSON.parse(errorText)?.error;
+          } catch {}
+
+          const classifiedErr = this._classifyError(
+            response.status,
+            parsedError?.message || errorText,
+            null
+          );
+          classifiedErr.model = currentModel;
+
+          if (classifiedErr.code === 'AUTH_ERROR' || classifiedErr.code === 'INVALID_API_KEY') {
+            throw classifiedErr;
+          }
+
+          if ((classifiedErr.code === 'MODEL_NOT_FOUND' || response.status === 429 || response.status === 503) && i < candidateModels.length - 1) {
+            this._log('warn', `Stream on model ${currentModel} failed (${classifiedErr.code}). Falling back to ${candidateModels[i + 1]}...`);
+            lastError = classifiedErr;
+            continue;
+          }
+
+          throw classifiedErr;
+        }
+
+        // Read streaming chunks via reader
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let usageMeta = {};
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
+
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.usageMetadata) {
+                usageMeta = parsed.usageMetadata;
+              }
+              const candidate = parsed.candidates?.[0];
+              const chunkText = candidate?.content?.parts?.[0]?.text;
+
+              if (chunkText) {
+                if (firstTokenMs === null) {
+                  firstTokenMs = Date.now() - tStart;
+                  if (typeof onFirstToken === 'function') {
+                    onFirstToken(firstTokenMs);
+                  }
+                }
+                accumulatedText += chunkText;
+                if (typeof onChunk === 'function') {
+                  onChunk({
+                    delta: chunkText,
+                    accumulatedText
+                  });
+                }
+              }
+            } catch (jsonErr) {
+              // Ignore partial JSON chunk line splits and continue
+            }
+          }
+        }
+
+        if (accumulatedText.trim()) {
+          const totalMs = Date.now() - tStart;
+          return {
+            text: accumulatedText.trim(),
+            provider: 'gemini',
+            model: currentModel,
+            usage: {
+              promptTokens: usageMeta.promptTokenCount || 0,
+              completionTokens: usageMeta.candidatesTokenCount || 0,
+              totalTokens: usageMeta.totalTokenCount || (usageMeta.promptTokenCount || 0) + (usageMeta.candidatesTokenCount || 0)
+            },
+            firstTokenMs: firstTokenMs || (Date.now() - tStart),
+            totalMs
+          };
+        }
+
+        // If streaming returned empty, fallback to non-streaming
+        return await this.generateChatCompletion({
+          apiKey,
+          model: currentModel,
+          systemPrompt,
+          userPrompt,
+          temperature: effectiveTemp,
+          maxTokens: effectiveMaxTokens,
+          timeoutMs: effectiveTimeout
+        });
+
+      } catch (err) {
+        clearTimeout(timeoutId);
+
+        if (err.name === 'AbortError' || controller.signal.aborted) {
+          if (signal?.aborted) {
+            const clientAbortErr = new Error('Generation cancelled by user.');
+            clientAbortErr.code = 'CANCELED';
+            throw clientAbortErr;
+          }
+          const timeoutErr = new Error(`Google Gemini stream timed out after ${effectiveTimeout}ms.`);
+          timeoutErr.code = 'TIMEOUT';
+          timeoutErr.provider = 'gemini';
+          if (i < candidateModels.length - 1) {
+            lastError = timeoutErr;
+            continue;
+          }
+          throw timeoutErr;
+        }
+
+        if (err.code === 'AUTH_ERROR' || err.code === 'INVALID_API_KEY') {
+          throw err;
+        }
+
+        if (i < candidateModels.length - 1) {
+          lastError = err;
+          continue;
+        }
+
+        throw err;
+      }
+    }
+
+    throw lastError || new Error('Google Gemini streaming models exhausted.');
+  }
+
+  async testConnection(params = {}) {
     const apiKey = params.apiKey || geminiConfig.getApiKey();
     const model = geminiConfig.getModel(params.model);
     const timeoutMs = params.timeoutMs || 8000;

@@ -28,12 +28,29 @@ export const DesignRecommendationsSection = ({
 
     const themeCream = {
       ...creamArch,
-      name: creamRec?.name || creamArch.name,
-      tag: creamRec?.tag || 'Light • Warm Cream',
+      name: 'Warm Cream & Ivory',
+      tagline: 'Warm ivory canvas, soft cream cards & rich espresso accents',
+      tag: 'Light • Warm Cream',
       reason: creamRec?.reason || creamRec?.rationale || 'Clean ivory canvas with warm cream cards and espresso amber accents for executive clarity.',
-      accentColor: creamRec?.accentColor || creamArch.accentColor,
-      isRecommended: true,
-      mode: 'light'
+      mode: 'light',
+      bgPrimary: '#F6F1E8',
+      cardBg: '#FFFDF8',
+      surface: '#FFFDF8',
+      surfaceSecondary: '#F1E9DD',
+      accentColor: '#8B4513',
+      accentGlow: 'rgba(139, 69, 19, 0.15)',
+      badgeBg: 'rgba(139, 69, 19, 0.1)',
+      badgeText: '#8B4513',
+      textPrimary: '#29231F',
+      textMuted: '#746B62',
+      textSecondary: '#746B62',
+      border: '#D8CCBC',
+      success: '#2F7D5B',
+      warning: '#B7791F',
+      danger: '#B84A4A',
+      borderRadius: '10px',
+      typography: 'Plus Jakarta Sans & Inter',
+      isRecommended: true
     };
 
     // 2. Dark Side Themes

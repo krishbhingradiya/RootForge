@@ -55,42 +55,35 @@ export const RobotLoadingOverlay = ({
   }, []);
 
   useEffect(() => {
-    // Clear any pending exit timers when isLoading state changes
+    // Clear any pending exit or entrance timers
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     if (exitTimerRef.current) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
     }
 
     if (isLoading) {
-      // 1. Anti-flicker protection (180ms threshold): Prevent flash on instant ops
+      // Mount overlay smoothly with short threshold
       timerRef.current = setTimeout(() => {
         setIsMounted(true);
-        setAnimState('initial');
-
-        // Trigger entrance animation on next animation frame
-        requestAnimationFrame(() => {
-          setAnimState('enter');
-        });
+        setAnimState('enter');
       }, delay);
     } else {
-      // Fast load completed before threshold -> cancel mount (no flicker)
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-
-      // If already mounted, stop video immediately (CASE A) and fade out
-      if (isMounted) {
-        if (videoRef.current) {
+      // As soon as loading finishes: instantly pause video and unmount overlay
+      if (videoRef.current) {
+        try {
           videoRef.current.pause();
           videoRef.current.currentTime = 0;
-        }
+        } catch {}
+      }
 
-        setAnimState('exit');
-        exitTimerRef.current = setTimeout(() => {
-          setIsMounted(false);
-          setAnimState('initial');
-        }, 240); // Matches CSS exit transition
+      if (isMounted) {
+        // Fast dismissal: unmount immediately so user never waits for video
+        setIsMounted(false);
+        setAnimState('initial');
       }
     }
 
@@ -100,17 +93,17 @@ export const RobotLoadingOverlay = ({
     };
   }, [isLoading, delay, isMounted]);
 
-  // Video playback management: Start playing when entrance begins
+  // Video playback management: Start playing only while loading is active
   useEffect(() => {
-    if (isMounted && animState === 'enter' && videoRef.current) {
+    if (isMounted && isLoading && videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch((err) => {
         console.debug('Robot video autoPlay prevented:', err?.message);
       });
     }
-  }, [isMounted, animState]);
+  }, [isMounted, isLoading]);
 
-  // Seamless looping when video ends while loading is still active (CASE B)
+  // Seamless looping only while loading is still active
   const handleVideoEnded = () => {
     if (videoRef.current && isLoading) {
       videoRef.current.currentTime = 0;

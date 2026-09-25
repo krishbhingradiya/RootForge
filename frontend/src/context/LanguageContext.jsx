@@ -59,7 +59,15 @@ export const LanguageProvider = ({ children }) => {
         return phraseDictionary[trimmed][lang] || phraseDictionary[trimmed].en || keyOrText;
       }
 
-      return fallback !== undefined ? fallback : keyOrText;
+      if (fallback !== undefined) return fallback;
+      if (typeof keyOrText === 'string' && keyOrText.includes('.')) {
+        const lastPart = keyOrText.split('.').pop();
+        if (lastPart) {
+          // Capitalize first letter of fallback key segment
+          return lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+        }
+      }
+      return keyOrText;
     };
 
     // Attach all top-level sections as properties: t.nav, t.common, t.exports, etc.

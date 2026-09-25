@@ -39,7 +39,7 @@ export const AppLayout = () => {
     };
   }, []);
 
-  const isDiscoveryPage = location.pathname.includes('/discovery');
+  const isOverlayExcluded = location.pathname.includes('/discovery') || location.pathname.includes('/architecture') || location.pathname.includes('/process');
 
   return (
     <div className="app-container">
@@ -57,8 +57,8 @@ export const AppLayout = () => {
             <Outlet />
           </ErrorBoundary>
         </main>
-        {/* Loading canvas — disabled for discovery page only */}
-        {!isDiscoveryPage && <RobotLoadingOverlay isLoading={isLoading} message={loadingMessage} />}
+        {/* Loading canvas — disabled for discovery, architecture, and process pages */}
+        {!isOverlayExcluded && <RobotLoadingOverlay isLoading={isLoading} message={loadingMessage} />}
       </div>
 
       <AiChatErrorBoundary

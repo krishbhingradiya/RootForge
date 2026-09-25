@@ -410,7 +410,7 @@ export function applyUiPatch(currentSpec, patch) {
   if (!spec.components) spec.components = [];
   if (!spec.sections) spec.sections = [];
   if (!spec.layout) spec.layout = { type: 'sidebar-grid', columns: 3, density: 'comfortable', sidebarPosition: 'right' };
-  if (!spec.theme) spec.theme = { ...THEME_ARCHETYPES['enterprise-slate'] };
+  if (!spec.theme) spec.theme = { ...THEME_ARCHETYPES['warm-cream'] };
 
   // Handle changes array from JSON Patch
   if (patch.changes && Array.isArray(patch.changes)) {
@@ -545,19 +545,19 @@ function executeSinglePatch(spec, patch) {
 
       if (colorPalette && COLOR_PALETTES[colorPalette.toLowerCase()]) {
         targetTheme = {
-          ...(spec.theme || THEME_ARCHETYPES['enterprise-slate']),
+          ...(spec.theme || THEME_ARCHETYPES['warm-cream']),
           ...COLOR_PALETTES[colorPalette.toLowerCase()]
         };
       } else if (themeId && THEME_ARCHETYPES[themeId]) {
         targetTheme = { ...THEME_ARCHETYPES[themeId] };
       } else if (themeId && COLOR_PALETTES[themeId.toLowerCase()]) {
         targetTheme = {
-          ...(spec.theme || THEME_ARCHETYPES['enterprise-slate']),
+          ...(spec.theme || THEME_ARCHETYPES['warm-cream']),
           ...COLOR_PALETTES[themeId.toLowerCase()]
         };
       } else {
         targetTheme = {
-          ...(spec.theme || THEME_ARCHETYPES['enterprise-slate']),
+          ...(spec.theme || THEME_ARCHETYPES['warm-cream']),
           ...(tokens || {})
         };
       }
