@@ -205,6 +205,41 @@ router.post('/answer', validateTwilioSignatureSafe, handleIncomingTwiML);
 router.get('/answer', handleIncomingTwiML);
 
 /**
+ * POST /api/voice/process-speech & GET /api/voice/process-speech
+ * Twilio Gather Webhook: Invoked when user speaks into the call
+ */
+const handleProcessSpeech = async (req, res) => {
+  const speechResult = req.body.SpeechResult || req.query.SpeechResult || req.body.speechResult || '';
+  const confidence = parseFloat(req.body.Confidence || req.query.Confidence || '1');
+  const callSid = req.body.CallSid || req.query.CallSid || null;
+  const from = req.body.From || req.query.From || null;
+  const to = req.body.To || req.query.To || null;
+  const sessionId = req.query.sessionId || req.body.sessionId || null;
+
+  try {
+    const twiml = await voiceWebhookService.processSpeech({
+      callSid,
+      speechResult,
+      confidence,
+      from,
+      to,
+      sessionId
+    });
+
+    res.type('text/xml');
+    res.send(twiml);
+  } catch (err) {
+    console.error(`[TwilioVoiceWebhook] ERROR processing speech: ${err.message}`);
+    const fallbackTwiML = voiceWebhookService.buildListeningTwiML('I am ready to help you. Please tell me more about your requirements.');
+    res.type('text/xml');
+    res.send(fallbackTwiML);
+  }
+};
+
+router.post('/process-speech', validateTwilioSignatureSafe, handleProcessSpeech);
+router.get('/process-speech', handleProcessSpeech);
+
+/**
  * POST /api/voice/status
  * Twilio Call Status Callback Webhook
  */

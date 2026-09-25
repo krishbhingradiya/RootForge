@@ -103,8 +103,26 @@ async function runVoiceTests() {
     });
 
     assert(twiml.includes('<Response>'), 'Generated valid TwiML XML Response root');
+    assert(twiml.includes('<Gather') && twiml.includes('input="speech"'), 'Includes <Gather input="speech"> element to prevent call ending');
+    assert(twiml.includes('/api/voice/process-speech'), 'Points Gather action to /api/voice/process-speech');
     assert(twiml.includes('Polly.Aditi') && twiml.includes('en-IN'), 'Includes Polly.Aditi neural Indian English voice');
     assert(twiml.includes('RootForge AI Business Consultant'), 'Includes AI greeting text');
+
+    // Test Speech Processing with normal idea
+    const speechResponse = await voiceWebhookService.processSpeech({
+      callSid: 'CA_twiml_test_123',
+      speechResult: 'I want to build an online grocery delivery app with fast search',
+      sessionId: testSessionId
+    });
+    assert(speechResponse.includes('<Gather') && speechResponse.includes('<Say'), 'Speech response returns follow-up question inside <Gather>');
+
+    // Test Goodbye Speech
+    const goodbyeResponse = await voiceWebhookService.processSpeech({
+      callSid: 'CA_twiml_test_123',
+      speechResult: 'Thank you, goodbye!',
+      sessionId: testSessionId
+    });
+    assert(goodbyeResponse.includes('<Hangup/>'), 'Goodbye transcript ends call gracefully with <Hangup/>');
 
     // Test Status Callback
     await voiceWebhookService.handleStatusCallback({
