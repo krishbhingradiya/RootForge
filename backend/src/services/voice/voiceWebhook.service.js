@@ -2,10 +2,10 @@
  * Enterprise Voice Webhook & TwiML Generator
  * 
  * Handles:
- * 1. Twilio Voice Webhooks (POST /api/voice/incoming and POST /api/voice/answer).
- * 2. Generating valid, robust TwiML with neural greeting and Media Stream connection.
- * 3. Processing Twilio Call Status Callbacks (ringing, in-progress, completed, failed, busy).
- * 4. Associating CallSid and Stream metadata with the user's PostgreSQL voice session.
+ * 1. Twilio Voice Answer Webhook (POST /api/voice/incoming and POST /api/voice/answer).
+ * 2. Instant generation of valid TwiML with zero blocking third-party API calls.
+ * 3. Processing Twilio Call Status Callbacks.
+ * 4. Linking session state asynchronously in PostgreSQL.
  */
 
 import twilio from 'twilio';
@@ -17,52 +17,14 @@ export class VoiceWebhookService {
   }
 
   /**
-   * Generates valid TwiML for Twilio when user answers the outbound phone call
+   * Generates clean, valid TwiML XML immediately when the user answers
    */
-  async generateIncomingTwiML({ callSid, sessionId = null, host = null, protocol = 'https' }) {
+  async generateIncomingTwiML({ callSid = null, sessionId = null, toPhone = null }) {
     const VoiceResponse = twilio.twiml.VoiceResponse;
     const response = new VoiceResponse();
 
-    // Match session by sessionId or CallSid
-    let session = null;
-    if (sessionId) {
-      session = await twilioVoiceService.getSession(sessionId);
-    }
-    if (!session && callSid) {
-      session = await twilioVoiceService.getSession(callSid);
-    }
-
-    if (session) {
-      await twilioVoiceService.updateSession(session.id, {
-        twilioCallSid: callSid || session.twilioCallSid,
-        status: 'connected',
-        connectedAt: new Date()
-      });
-      console.log(`[VoiceWebhook] Answer webhook received for Call SID: ${callSid || 'N/A'} (Session: ${session.id}) -> status: 'connected'`);
-    } else {
-      console.log(`[VoiceWebhook] Answer webhook received for Call SID: ${callSid || 'N/A'} (No session matched)`);
-    }
-
-    // Determine WebSocket host URL
-    const envBaseUrl = process.env.PUBLIC_BASE_URL || process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || '';
-    let wsHost = host || 'rootforge.onrender.com';
-
-    if (envBaseUrl) {
-      try {
-        const parsed = new URL(envBaseUrl);
-        wsHost = parsed.host;
-      } catch {}
-    }
-
-    // Use wss for production/Render and ws for local development
-    const isLocal = wsHost.includes('localhost') || wsHost.includes('127.0.0.1');
-    const wsProtocol = isLocal ? 'ws' : 'wss';
-    const streamUrl = `${wsProtocol}://${wsHost}/api/voice/stream`;
-
-    console.log(`[VoiceWebhook] Connecting call to real-time WebSocket Media Stream: ${streamUrl}`);
-
-    // Initial greeting in natural Indian English (Polly.Aditi)
-    const greetingText = 'Hello, welcome to RootForge AI Business Consultant. Please tell me about the business idea or problem you want to solve.';
+    // Natural greeting via Indian English Polly voice
+    const greetingText = 'Hello! Welcome to RootForge AI Business Consultant. I am ready to understand your business idea.';
 
     response.say(
       {
@@ -72,20 +34,31 @@ export class VoiceWebhookService {
       greetingText
     );
 
-    // Connect call to real-time WebSocket Media Stream
-    const connect = response.connect();
-    const stream = connect.stream({
-      url: streamUrl,
-      name: 'rootforge-ai-voice-stream'
-    });
+    // Update session state asynchronously without blocking TwiML delivery
+    (async () => {
+      try {
+        let session = null;
+        if (sessionId) {
+          session = await twilioVoiceService.getSession(sessionId);
+        }
+        if (!session && callSid) {
+          session = await twilioVoiceService.getSession(callSid);
+        }
+        if (!session && toPhone) {
+          session = await twilioVoiceService.getSession(toPhone);
+        }
 
-    // Pass session metadata to WebSocket stream start event
-    if (session) {
-      stream.parameter({
-        name: 'sessionId',
-        value: session.id
-      });
-    }
+        if (session) {
+          await twilioVoiceService.updateSession(session.id, {
+            twilioCallSid: callSid || session.twilioCallSid,
+            status: 'connected',
+            connectedAt: new Date()
+          });
+        }
+      } catch (err) {
+        console.warn('[VoiceWebhook] Non-blocking session update notice:', err.message);
+      }
+    })();
 
     return response.toString();
   }
@@ -94,69 +67,71 @@ export class VoiceWebhookService {
    * Handles Twilio Status Callback events (ringing, in-progress, completed, failed, busy, no-answer)
    */
   async handleStatusCallback({ callSid, callStatus, duration = 0, error = null, sessionId = null }) {
-    console.log(`[VoiceWebhook] Twilio status callback: Call ${callSid?.slice(0, 8)}... -> status: ${callStatus} (Duration: ${duration}s)`);
+    console.log(`[VoiceWebhook] Twilio status callback: Call ${callSid?.slice(0, 8) || 'N/A'}... -> status: ${callStatus} (Duration: ${duration}s)`);
 
-    let session = null;
-    if (sessionId) {
-      session = await twilioVoiceService.getSession(sessionId);
+    try {
+      let session = null;
+      if (sessionId) {
+        session = await twilioVoiceService.getSession(sessionId);
+      }
+      if (!session && callSid) {
+        session = await twilioVoiceService.getSession(callSid);
+      }
+
+      if (!session) {
+        return;
+      }
+
+      let mappedStatus = session.status;
+      let updates = {};
+
+      switch (callStatus?.toLowerCase()) {
+        case 'initiated':
+        case 'queued':
+          mappedStatus = 'initiating';
+          break;
+        case 'ringing':
+          mappedStatus = 'ringing';
+          break;
+        case 'in-progress':
+        case 'answered':
+          mappedStatus = 'active';
+          if (!session.connectedAt) {
+            updates.connectedAt = new Date();
+          }
+          break;
+        case 'completed':
+          mappedStatus = 'completed';
+          updates.endedAt = new Date();
+          break;
+        case 'busy':
+          mappedStatus = 'failed';
+          updates.errorMessage = 'The destination number was busy.';
+          updates.endedAt = new Date();
+          break;
+        case 'no-answer':
+          mappedStatus = 'failed';
+          updates.errorMessage = 'No answer from the destination phone number.';
+          updates.endedAt = new Date();
+          break;
+        case 'failed':
+          mappedStatus = 'failed';
+          updates.errorMessage = error || 'The call could not be completed.';
+          updates.endedAt = new Date();
+          break;
+        case 'canceled':
+          mappedStatus = 'cancelled';
+          updates.endedAt = new Date();
+          break;
+        default:
+          break;
+      }
+
+      updates.status = mappedStatus;
+      await twilioVoiceService.updateSession(session.id, updates);
+    } catch (err) {
+      console.warn('[VoiceWebhook] Status callback update error:', err.message);
     }
-    if (!session && callSid) {
-      session = await twilioVoiceService.getSession(callSid);
-    }
-
-    if (!session) {
-      console.warn(`[VoiceWebhook] No active voice session found for status callback CallSid: ${callSid}`);
-      return;
-    }
-
-    let mappedStatus = session.status;
-    let updates = {};
-
-    switch (callStatus?.toLowerCase()) {
-      case 'initiated':
-      case 'queued':
-        mappedStatus = 'initiating';
-        break;
-      case 'ringing':
-        mappedStatus = 'ringing';
-        break;
-      case 'in-progress':
-      case 'answered':
-        mappedStatus = 'active';
-        if (!session.connectedAt) {
-          updates.connectedAt = new Date();
-        }
-        break;
-      case 'completed':
-        mappedStatus = 'completed';
-        updates.endedAt = new Date();
-        break;
-      case 'busy':
-        mappedStatus = 'failed';
-        updates.errorMessage = 'The destination number was busy.';
-        updates.endedAt = new Date();
-        break;
-      case 'no-answer':
-        mappedStatus = 'failed';
-        updates.errorMessage = 'No answer from the destination phone number.';
-        updates.endedAt = new Date();
-        break;
-      case 'failed':
-        mappedStatus = 'failed';
-        updates.errorMessage = error || 'The call could not be completed.';
-        updates.endedAt = new Date();
-        break;
-      case 'canceled':
-        mappedStatus = 'cancelled';
-        updates.endedAt = new Date();
-        break;
-      default:
-        break;
-    }
-
-    updates.status = mappedStatus;
-    await twilioVoiceService.updateSession(session.id, updates);
-    console.log(`[VoiceSession] Updated status callback in PostgreSQL: ${session.id} -> ${mappedStatus}`);
   }
 }
 

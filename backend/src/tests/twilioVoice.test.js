@@ -104,8 +104,7 @@ async function runVoiceTests() {
 
     assert(twiml.includes('<Response>'), 'Generated valid TwiML XML Response root');
     assert(twiml.includes('Polly.Aditi') && twiml.includes('en-IN'), 'Includes Polly.Aditi neural Indian English voice');
-    assert(twiml.includes('<Connect>') && twiml.includes('<Stream'), 'Includes <Connect><Stream> element');
-    assert(twiml.includes('wss://rootforge.onrender.com/api/voice/stream'), 'Directs Stream to secure wss:// endpoint');
+    assert(twiml.includes('RootForge AI Business Consultant'), 'Includes AI greeting text');
 
     // Test Status Callback
     await voiceWebhookService.handleStatusCallback({

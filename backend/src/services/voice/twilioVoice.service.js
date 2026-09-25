@@ -256,14 +256,16 @@ export class TwilioVoiceService {
       throw err;
     }
 
-    const webhookUrl = `${this.webhookBaseUrl}/api/voice/answer?sessionId=${encodeURIComponent(session.id)}`;
-    const statusCallbackUrl = `${this.webhookBaseUrl}/api/voice/status?sessionId=${encodeURIComponent(session.id)}`;
+    const webhookUrl = `${this.webhookBaseUrl}/api/voice/incoming`;
+    const statusCallbackUrl = `${this.webhookBaseUrl}/api/voice/status`;
 
     try {
       await this.updateSession(session.id, {
         status: 'initiating',
         startedAt: new Date()
       });
+
+      console.log(`[TwilioVoiceService] Twilio Answer URL: ${webhookUrl}`);
 
       /**
        * TWILIO PARAMETERS CONFIGURATION:
