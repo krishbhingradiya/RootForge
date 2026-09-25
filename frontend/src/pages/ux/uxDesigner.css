@@ -6,11 +6,13 @@
 .ux-workspace-container {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding-bottom: 60px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 0 60px 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* 1. Header */
@@ -410,26 +412,32 @@
 
 /* Browser Frame Canvas */
 .ux-canvas-area {
-  padding: 24px;
+  padding: 14px 16px;
   background-color: var(--bg-main);
-  min-height: 540px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
 }
 
-/* Desktop Frame — when .ux-themed-frame is applied, inline styles control bg/border */
+/* Desktop Frame — Ergonomic Zero-Scroll Workspace Viewport */
 .ux-frame-desktop {
   width: 100%;
-  max-width: 1200px;
+  max-width: 100%;
+  height: 590px;
+  max-height: 620px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 .ux-frame-desktop.ux-themed-frame {
   background-color: unset;
@@ -440,6 +448,8 @@
 .ux-frame-tablet {
   width: 100%;
   max-width: 768px;
+  height: 720px;
+  max-height: 85vh;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -447,6 +457,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  margin: 0 auto;
 }
 .ux-frame-tablet.ux-themed-frame {
   background-color: unset;
@@ -456,7 +467,9 @@
 /* Mobile Frame (Realistic Modern Smartphone Chassis) */
 .ux-frame-mobile {
   width: 100%;
-  max-width: 380px;
+  max-width: 390px;
+  height: 720px;
+  max-height: 85vh;
   background-color: var(--bg-surface);
   border: 10px solid #1E232D;
   border-radius: 44px;
@@ -464,7 +477,6 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 720px;
   position: relative;
   margin: 0 auto;
 }
@@ -472,8 +484,7 @@
   background-color: unset;
 }
 .ux-frame-mobile .ux-frame-content {
-  padding: 12px;
-  gap: 12px;
+  padding: 0;
 }
 
 /* Themed Frame: ensure ALL descendants smoothly transition theme token changes */

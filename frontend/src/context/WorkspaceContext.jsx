@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
 
-const WorkspaceContext = createContext(null);
+export const WorkspaceContext = createContext(null);
 
 const DEFAULT_DEMO_WORKSPACE = {
   id: 'ws-demo-customer-support',

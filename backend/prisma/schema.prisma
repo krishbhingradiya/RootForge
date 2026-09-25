@@ -12,6 +12,8 @@ model Organization {
   id         String      @id @default(cuid())
   name       String
   industry   String
+  status     String      @default("ACTIVE") // ACTIVE, SUSPENDED, ARCHIVED
+  plan       String      @default("ENTERPRISE") // ENTERPRISE, PROFESSIONAL, STARTER
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   users      User[]
@@ -24,7 +26,9 @@ model User {
   passwordHash          String
   name                  String
   role                  String                 @default("CONSULTANT") // ADMIN, CONSULTANT, ANALYST, VIEWER
+  status                String                 @default("ACTIVE") // ACTIVE, SUSPENDED, DEACTIVATED
   emailVerified         Boolean                @default(false)
+  lastLoginAt           DateTime?
   organizationId        String?
   organization          Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   createdAt             DateTime               @default(now())
@@ -52,6 +56,10 @@ model EmailVerificationOTP {
   userId      String?
 
   @@index([email])
+  @@index([email, verifiedAt, createdAt])
+  @@index([email, purpose, verifiedAt, createdAt])
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Workspace {
@@ -86,6 +94,10 @@ model Workspace {
   versions           ArtifactVersion[]
   exportJobs         ExportJob[]
   aiTokensUsed       Int                 @default(0)
+
+  @@index([organizationId, createdAt])
+  @@index([createdById, createdAt])
+  @@index([status])
 }
 
 model Document {
@@ -100,6 +112,9 @@ model Document {
   extractedText String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, status])
 }
 
 model Conversation {
@@ -166,6 +181,9 @@ model BusinessAnalysis {
   model                    String?   // AI model used for synthesis
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, status])
 }
 
 model Solution {
@@ -192,6 +210,8 @@ model Solution {
   sourceContextHash      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
 }
 
 model Architecture {
@@ -215,6 +235,8 @@ model Architecture {
   updatedAt              DateTime           @updatedAt
   nodes                  ArchitectureNode[]
   edges                  ArchitectureEdge[]
+
+  @@index([workspaceId, createdAt])
 }
 
 model ArchitectureNode {
@@ -237,6 +259,8 @@ model ArchitectureNode {
   dependencies     String?
   validationStatus String?      // EXISTING, PROPOSED, RECOMMENDED, VALIDATION_REQUIRED
   classification   String?      // EXISTING, USER_PROVIDED, RECOMMENDED, AI_PROPOSED, VALIDATION_REQUIRED, USER_ADDED
+
+  @@index([architectureId])
 }
 
 model ArchitectureEdge {
@@ -251,6 +275,8 @@ model ArchitectureEdge {
   direction      String?
   description    String?
   requirementIds String?
+
+  @@index([architectureId])
 }
 
 model ProcessModel {
@@ -273,6 +299,8 @@ model ProcessModel {
   createdAt                  DateTime      @default(now())
   updatedAt                  DateTime      @updatedAt
   nodes                      ProcessNode[]
+
+  @@index([workspaceId, createdAt])
 }
 
 model ProcessNode {
@@ -304,6 +332,8 @@ model ProcessNode {
   postconditions     String?
   validationStatus   String?       @default("PROPOSED")
   sourceContext      String?
+
+  @@index([processModelId, stepOrder])
 }
 
 model UXDesign {
@@ -317,6 +347,8 @@ model UXDesign {
   version      Int       @default(1)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
 }
 
 model DatabaseDesign {
@@ -332,6 +364,8 @@ model DatabaseDesign {
   version      Int       @default(1)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
 }
 
 model ApiDesign {
@@ -346,6 +380,8 @@ model ApiDesign {
   version     Int       @default(1)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
 }
 
 model ImplementationPlan {
@@ -362,6 +398,8 @@ model ImplementationPlan {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   tasks                  Task[]
+
+  @@index([workspaceId, createdAt])
 }
 
 model Task {
@@ -384,6 +422,9 @@ model Task {
   taskOrder         Int                @default(0)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @default(now()) @updatedAt
+
+  @@index([planId, taskOrder])
+  @@index([planId, status])
 }
 
 model Comment {
@@ -402,6 +443,9 @@ model Comment {
   status        String    @default("OPEN") // OPEN, RESOLVED, REOPENED
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  @@index([workspaceId, artifactType, createdAt])
+  @@index([userId])
 }
 
 model Approval {
@@ -423,17 +467,23 @@ model Approval {
   updatedAt     DateTime  @updatedAt
 
   @@unique([workspaceId, artifactType, versionNumber, stage, userId])
+  @@index([workspaceId, status])
 }
 
 model ActivityLog {
-  id              String    @id @default(cuid())
-  workspaceId     String
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id              String     @id @default(cuid())
+  workspaceId     String?
+  workspace       Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organizationId  String?
   userId          String?
-  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user            User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   userName        String?
   userRole        String?
-  action          String    // VERSION_CREATED, VERSION_RESTORED, SIGN_OFF_SUBMITTED, SIGN_OFF_APPROVED, SIGN_OFF_REJECTED, CHANGES_REQUESTED, COMMENT_ADDED, COMMENT_RESOLVED, COMMENT_REOPENED, ARTIFACT_REGENERATED, TASK_UPDATED, EXPORT_CREATED
+  action          String     // VERSION_CREATED, VERSION_RESTORED, SIGN_OFF_SUBMITTED, SIGN_OFF_APPROVED, SIGN_OFF_REJECTED, CHANGES_REQUESTED, COMMENT_ADDED, COMMENT_RESOLVED, COMMENT_REOPENED, ARTIFACT_REGENERATED, TASK_UPDATED, EXPORT_CREATED, USER_LOGIN, USER_LOGOUT, USER_CREATED, USER_UPDATED, ROLE_CHANGED, ORG_CREATED, ORG_UPDATED, WORKSPACE_CREATED, CONFIG_UPDATED
+  resource        String?    // USER, ORG, WORKSPACE, AI_CONFIG, SECURITY, AUTH, INTEGRATION, ARTIFACT
+  resourceId      String?
+  ipAddress       String?
+  status          String     @default("SUCCESS") // SUCCESS, FAILED, WARNING
   details         String
   artifactType    String?
   artifactName    String?
@@ -441,7 +491,13 @@ model ActivityLog {
   resultingStatus String?
   beforeState     String?
   afterState      String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime   @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@index([action])
+  @@index([resource, createdAt])
 }
 
 model ArtifactVersion {
@@ -455,6 +511,9 @@ model ArtifactVersion {
   createdById   String?
   createdBy     User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
   createdAt     DateTime  @default(now())
+
+  @@index([workspaceId, artifactType, versionNumber])
+  @@index([workspaceId, createdAt])
 }
 
 model ExportJob {
@@ -470,6 +529,8 @@ model ExportJob {
   downloadUrl   String?
   summary       String?
   createdAt     DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
 }
 
 model Notification {
@@ -481,4 +542,45 @@ model Notification {
   type      String   @default("INFO") // INFO, SUCCESS, WARNING, APPROVAL
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  category  String   @default("PLATFORM") // PLATFORM, AI, SECURITY, FEATURE_FLAG, INTEGRATION
+  isSecret  Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model IntegrationConfig {
+  id             String    @id @default(cuid())
+  provider       String    // JIRA, GITHUB, SLACK, AZURE_DEVOPS, WEBHOOK, SALESFORCE
+  name           String
+  status         String    @default("CONNECTED") // CONNECTED, DISCONNECTED, ERROR
+  configJson     String?
+  isEnabled      Boolean   @default(true)
+  lastSyncAt     DateTime?
+  errorReason    String?
+  organizationId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model AdminAlert {
+  id             String   @id @default(cuid())
+  title          String
+  message        String
+  severity       String   @default("INFO") // INFO, WARNING, CRITICAL
+  category       String   @default("SYSTEM") // SECURITY, AI, SYSTEM, QUOTA, INTEGRATION
+  isRead         Boolean  @default(false)
+  isAcknowledged Boolean  @default(false)
+  metadataJson   String?
+  createdAt      DateTime @default(now())
+
+  @@index([isRead, createdAt])
+  @@index([severity, createdAt])
 }

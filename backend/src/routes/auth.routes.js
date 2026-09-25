@@ -9,6 +9,7 @@ import {
   createAndSendPasswordResetOtp,
   verifyPasswordResetOtp
 } from '../services/otpService.js';
+import { logAdminAction } from '../services/adminAudit.service.js';
 
 const router = Router();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'mgpro9090@gmail.com').trim().toLowerCase();
@@ -41,7 +42,7 @@ router.post('/register', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const assignedRole = normalizedEmail === ADMIN_EMAIL ? 'ADMIN' : (role || 'CONSULTANT');
+    const assignedRole = normalizedEmail === ADMIN_EMAIL ? 'ADMIN' : 'CONSULTANT';
     let user;
 
     if (existingUser && !existingUser.emailVerified) {
@@ -148,17 +149,18 @@ router.post('/login', async (req, res) => {
 
     // Compulsory Email Verification OTP on EVERY login (Two-Factor / Login OTP)
     let lastOtpErr = null;
+    let cooldown = 30;
     try {
-      await createAndSendVerificationOtp({
+      const otpRes = await createAndSendVerificationOtp({
         email: normalizedEmail,
         name: user.name,
         userId: user.id
       });
+      cooldown = otpRes.cooldownSeconds || 30;
     } catch (otpErr) {
       lastOtpErr = otpErr;
+      cooldown = otpErr.cooldownRemaining || 30;
     }
-
-    const cooldown = await getResendCooldownRemaining(normalizedEmail);
 
     return res.status(200).json({
       requiresVerification: true,
@@ -188,12 +190,36 @@ router.post('/verify-email-otp', async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase();
     const { user } = await verifyEmailOtp({ email: normalizedEmail, otp });
 
+    const isRealAdmin = normalizedEmail === ADMIN_EMAIL;
+    const effectiveRole = isRealAdmin ? 'ADMIN' : (user.role === 'ADMIN' ? 'CONSULTANT' : user.role);
+
+    // Update lastLoginAt timestamp and ensure non-admin email does not retain ADMIN role
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        ...(!isRealAdmin && user.role === 'ADMIN' ? { role: 'CONSULTANT' } : {})
+      }
+    });
+
+    // Record login in immutable audit log
+    await logAdminAction({
+      userId: user.id,
+      userName: user.name,
+      userRole: effectiveRole,
+      action: 'USER_LOGIN',
+      resource: 'AUTH',
+      resourceId: user.id,
+      details: `User ${user.name} (${user.email}) logged in successfully via 2FA Email OTP.`,
+      organizationId: user.organizationId
+    });
+
     // Issue authenticated JWT session
     const token = signToken({
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      role: effectiveRole,
       organizationId: user.organizationId
     });
 
@@ -204,7 +230,7 @@ router.post('/verify-email-otp', async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role: effectiveRole,
         emailVerified: true,
         organization: user.organization
       }
@@ -373,6 +399,9 @@ router.get('/me', authenticate, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
+
+    const isRealAdmin = user.email.trim().toLowerCase() === ADMIN_EMAIL;
+    user.role = isRealAdmin ? 'ADMIN' : (user.role === 'ADMIN' ? 'CONSULTANT' : user.role);
 
     res.json({ user });
   } catch (error) {

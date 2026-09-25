@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
 import { useParams } from 'react-router-dom';
 import { Mic, MicOff, Square, Loader2, Volume2, VolumeX, AlertCircle, ShieldAlert } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { useLanguage } from '../../context/LanguageContext';
+import { WorkspaceContext } from '../../context/WorkspaceContext';
 import api from '../../services/api';
 
-// Map application language codes to Web Speech API BCP-47 locale tags
+// Map application language codes to Web Speech API BCP-47 locale tags (Indian English default)
 const SPEECH_LANG_MAP = {
-  en: 'en-US',
+  en: 'en-IN',
   hi: 'hi-IN',
   gu: 'gu-IN'
 };
@@ -17,14 +18,12 @@ const SPEECH_LANG_MAP = {
  * Robust Multilingual Voice Input Controller.
  * 
  * Features:
- * 1. Web Speech API (SpeechRecognition / webkitSpeechRecognition) with continuous=true & interimResults=true.
- * 2. Cumulative result array iteration (i = 0 to length - 1) — zero loss of earlier phrases.
- * 3. Strict separation of interim vs. final transcripts — prevents duplicate concatenation.
- * 4. Natural pause handling with silence watchdog timer (2.8s pause after speech before auto-finalizing).
- * 5. MediaRecorder + Server-Side Gemini audio transcription fallback for unsupported browsers/network errors.
- * 6. Explicit 6-state machine: idle, starting, listening, processing, error, unsupported.
- * 7. Safe language switching teardown — stops recognition if language changes while listening.
- * 8. Zero empty transcript submissions; triggers localized user feedback.
+ * 1. Native Capacitor & Web MediaRecorder audio capture with automatic MIME type discovery.
+ * 2. Multi-language Gemini audio transcription via backend /api/workspaces/:id/chats/transcribe-audio.
+ * 3. Web Speech API real-time continuous streaming on desktop browsers with automated fallback.
+ * 4. Comprehensive permission tracking and resilient auto-recovery.
+ * 5. Short/empty audio detection with localized feedback.
+ * 6. Direct insertion of speech transcript into the active chat input.
  */
 export const ChatVoiceInput = ({
   lang = 'en',
@@ -36,6 +35,9 @@ export const ChatVoiceInput = ({
   disabled = false
 }) => {
   const { t } = useLanguage();
+  const wsContext = useContext(WorkspaceContext);
+  const currentWorkspace = wsContext?.currentWorkspace;
+
   const [state, setState] = useState('idle'); // 'idle' | 'starting' | 'listening' | 'processing' | 'error' | 'permissionDenied' | 'unsupported'
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -44,6 +46,7 @@ export const ChatVoiceInput = ({
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const mediaStreamRef = useRef(null);
+  const recordingStartTimeRef = useRef(0);
 
   const isListeningRef = useRef(false);
   const isUserStoppingRef = useRef(false);
@@ -91,14 +94,6 @@ export const ChatVoiceInput = ({
       stopListeningCleanly(false);
     }
   }, [disabled]);
-
-  // Teardown when workspace or session changes
-  useEffect(() => {
-    if (isListeningRef.current) {
-      console.log('[VOICE DEBUG] Workspace/session changed. Aborting voice session.');
-      stopListeningCleanly(false);
-    }
-  }, [workspaceId, sessionId]);
 
   // Reset state and re-check permission when application resumes from Android Settings / background
   useEffect(() => {
@@ -229,12 +224,167 @@ export const ChatVoiceInput = ({
   }, [onFinalTranscript, onTranscript, t]);
 
   /**
+   * MediaRecorder + Backend Gemini Audio STT.
+   * Primary voice capture method on Capacitor Android/iOS and fallback on Web.
+   */
+  const startMediaRecorderFallback = useCallback(async () => {
+    if (!hasMediaDevices) {
+      setState('unsupported');
+      setErrorMessage('Microphone is not available on this device.');
+      return;
+    }
+
+    try {
+      setState('starting');
+      setErrorMessage('');
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      // Select best supported MIME container for this browser/WebView
+      const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/aac',
+        'audio/ogg;codecs=opus',
+        'audio/ogg'
+      ];
+      let chosenMime = '';
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+        for (const cand of candidates) {
+          if (MediaRecorder.isTypeSupported(cand)) {
+            chosenMime = cand;
+            break;
+          }
+        }
+      }
+
+      const recorder = chosenMime ? new MediaRecorder(stream, { mimeType: chosenMime }) : new MediaRecorder(stream);
+      const mimeType = recorder.mimeType || chosenMime || 'audio/webm';
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstart = () => {
+        isListeningRef.current = true;
+        recordingStartTimeRef.current = Date.now();
+        setState('listening');
+        setErrorMessage('');
+        console.log(`========== VOICE DEBUG ==========
+Permission: GRANTED
+Audio initialized: YES
+Recorder created: YES (${mimeType})
+Recording started: YES
+=================================`);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+        setState('processing');
+
+        const durationSec = (Date.now() - recordingStartTimeRef.current) / 1000;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+
+        console.log(`========== VOICE DEBUG ==========
+Permission: GRANTED
+Audio initialized: YES
+Recorder created: YES
+Recording started: YES
+Recording duration: ${durationSec.toFixed(1)}s
+Recording stopped: YES
+Audio URI: PRESENT (Blob ${audioBlob.size} bytes)
+Audio size: ${audioBlob.size} bytes
+Transcription request: SENT
+=================================`);
+
+        if (durationSec < 0.4) {
+          setState('error');
+          setErrorMessage(t('chat.voice.tooShort') || 'Recording was too short. Please try again.');
+          resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+          return;
+        }
+
+        if (audioBlob.size < 200) {
+          setState('error');
+          setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
+          resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+          return;
+        }
+
+        try {
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Audio = reader.result.split(',')[1];
+            const effectiveWsId = workspaceId || currentWorkspace?.id || 'ws-demo-customer-support';
+
+            console.log('[VOICE DEBUG] Dispatching audio to backend Gemini transcription endpoint...');
+            const res = await api.transcribeAudio(effectiveWsId, {
+              audioData: base64Audio,
+              mimeType,
+              language: activeVoiceLangRef.current || 'en'
+            });
+
+            console.log(`========== VOICE DEBUG ==========
+Transcription response: RECEIVED
+Transcript: ${res?.transcript ? `"${res.transcript}"` : 'EMPTY'}
+=================================`);
+
+            if (res && res.hasSpeech && res.transcript && res.transcript.trim()) {
+              finalizeAndSubmit(res.transcript.trim());
+            } else {
+              setState('error');
+              setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
+              resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
+            }
+          };
+        } catch (err) {
+          console.error('[VOICE DEBUG] Server audio transcription failed:', err);
+          setState('error');
+          setErrorMessage(
+            err?.message?.includes('Network')
+              ? (t('chat.voice.network') || 'Voice recognition network error. Please try again.')
+              : (t('chat.voice.error') || 'Voice recognition error. Click to retry.')
+          );
+          resetTimerRef.current = setTimeout(() => setState('idle'), 3500);
+        }
+      };
+
+      recorder.start(500); // 500ms chunk timeslices
+
+    } catch (err) {
+      console.warn('[VOICE DEBUG] getUserMedia failed:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.name === 'SecurityError') {
+        setState('permissionDenied');
+        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone permission is required. Please allow microphone access or enable it in Android Settings.');
+        setTimeout(() => {
+          setState(prev => (prev === 'permissionDenied' ? 'idle' : prev));
+        }, 4500);
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setState('unsupported');
+        setErrorMessage('Microphone is not available on this device.');
+      } else {
+        setState('error');
+        setErrorMessage(t('chat.voice.error') || 'Unable to start the microphone. Please tap to try again.');
+        setTimeout(() => setState('idle'), 3500);
+      }
+    }
+  }, [hasMediaDevices, workspaceId, currentWorkspace, finalizeAndSubmit, t]);
+
+  /**
    * Starts Web Speech API recognition session with real-time live streaming interim text.
    */
   const startWebSpeech = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      if (hasMediaDevices && workspaceId) {
+      if (hasMediaDevices) {
         startMediaRecorderFallback();
       } else {
         setState('unsupported');
@@ -323,7 +473,7 @@ export const ChatVoiceInput = ({
 
         if (event.error === 'not-allowed' || event.error === 'permission-denied') {
           // Attempt getUserMedia fallback to trigger native Android permission prompt if needed
-          if (hasMediaDevices && workspaceId) {
+          if (hasMediaDevices) {
             console.log('[VOICE DEBUG] Web Speech not allowed. Triggering getUserMedia fallback...');
             startMediaRecorderFallback();
             return;
@@ -337,7 +487,7 @@ export const ChatVoiceInput = ({
 
         if (event.error === 'network' || event.error === 'service-not-allowed') {
           console.warn('[VOICE DEBUG] Web Speech service/network issue. Falling back to backend audio transcription...');
-          if (hasMediaDevices && workspaceId) {
+          if (hasMediaDevices) {
             startMediaRecorderFallback();
             return;
           }
@@ -380,121 +530,14 @@ export const ChatVoiceInput = ({
       recognition.start();
     } catch (err) {
       console.warn('[VOICE DEBUG] recognition.start() threw:', err);
-      if (hasMediaDevices && workspaceId) {
+      if (hasMediaDevices) {
         startMediaRecorderFallback();
       } else {
         setState('error');
         resetTimerRef.current = setTimeout(() => setState('idle'), 3000);
       }
     }
-  }, [lang, workspaceId, hasMediaDevices, onInterimPreview, onTranscript, finalizeAndSubmit, startMediaRecorderFallback, t]);
-
-  /**
-   * MediaRecorder + Backend Gemini Audio STT fallback.
-   * Primary voice capture method on Capacitor Android WebView and fallback on Web.
-   */
-  const startMediaRecorderFallback = useCallback(async () => {
-    if (!hasMediaDevices) {
-      setState('unsupported');
-      setErrorMessage('Microphone is not available on this device.');
-      return;
-    }
-
-    try {
-      setState('starting');
-      setErrorMessage('');
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') 
-        ? 'audio/webm' 
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/wav';
-
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-      audioChunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-
-      recorder.onstart = () => {
-        isListeningRef.current = true;
-        setState('listening');
-        setErrorMessage('');
-        console.log('[VOICE DEBUG] MediaRecorder audio recording started with mimeType:', mimeType);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(track => track.stop());
-        setState('processing');
-
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        if (audioBlob.size < 1000) {
-          setState('error');
-          setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-          setTimeout(() => setState('idle'), 3000);
-          return;
-        }
-
-        try {
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            const base64Audio = reader.result.split(',')[1];
-            if (!workspaceId) {
-              setState('idle');
-              return;
-            }
-
-            console.log('[VOICE DEBUG] Dispatching audio to backend Gemini transcription endpoint...');
-            const res = await api.transcribeAudio(workspaceId, {
-              audioData: base64Audio,
-              mimeType,
-              language: activeVoiceLangRef.current
-            });
-
-            if (res && res.hasSpeech && res.transcript) {
-              finalizeAndSubmit(res.transcript);
-            } else {
-              setState('error');
-              setErrorMessage(t('chat.voice.noSpeech') || 'No speech detected. Please try again.');
-              setTimeout(() => setState('idle'), 3000);
-            }
-          };
-        } catch (err) {
-          console.error('[VOICE DEBUG] Server audio transcription failed:', err);
-          setState('error');
-          setErrorMessage(t('chat.voice.error') || 'Voice recognition error. Click to retry.');
-          setTimeout(() => setState('idle'), 3000);
-        }
-      };
-
-      recorder.start(500); // 500ms timeslices
-
-    } catch (err) {
-      console.warn('[VOICE DEBUG] getUserMedia failed:', err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.name === 'SecurityError') {
-        setState('permissionDenied');
-        setErrorMessage(t('chat.voice.permissionDenied') || 'Microphone permission is required. Please allow microphone access or enable it in Android Settings.');
-        setTimeout(() => {
-          setState(prev => (prev === 'permissionDenied' ? 'idle' : prev));
-        }, 4500);
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setState('unsupported');
-        setErrorMessage('Microphone is not available on this device.');
-      } else {
-        setState('error');
-        setErrorMessage(t('chat.voice.error') || 'Unable to start the microphone. Please tap to try again.');
-        setTimeout(() => setState('idle'), 3500);
-      }
-    }
-  }, [hasMediaDevices, workspaceId, finalizeAndSubmit, t]);
+  }, [lang, hasMediaDevices, onInterimPreview, onTranscript, finalizeAndSubmit, startMediaRecorderFallback, t]);
 
   // Click handler (toggle listening vs stop)
   const handleClick = (e) => {
@@ -515,7 +558,7 @@ export const ChatVoiceInput = ({
         startMediaRecorderFallback();
       } else if (hasWebSpeech) {
         startWebSpeech();
-      } else if (hasMediaDevices && workspaceId) {
+      } else if (hasMediaDevices) {
         startMediaRecorderFallback();
       } else {
         setState('unsupported');
@@ -928,30 +971,56 @@ class GlobalSpeechManager {
     }
     const voices = this.voices || [];
     const normLang = (lang || 'en').toLowerCase().trim();
-    const normLocale = (targetLocale || 'en-US').toLowerCase().trim();
+    const normLocale = (targetLocale || 'en-IN').toLowerCase().trim();
 
     // 1. Strict Gujarati Voice Detection — NEVER match English voice
     if (normLang === 'gu') {
-      const guVoice = voices.find(v => 
-        (v.lang.toLowerCase().startsWith('gu') || v.name.toLowerCase().includes('gujarat')) &&
-        !v.lang.toLowerCase().startsWith('en')
-      );
+      const guVoice = voices.find(v => {
+        const vLang = (v?.lang || '').toLowerCase();
+        const vName = (v?.name || '').toLowerCase();
+        return (vLang.startsWith('gu') || vName.includes('gujarat')) && !vLang.startsWith('en');
+      });
       return guVoice || null;
     }
 
-    // 2. Strict Hindi Voice Detection — NEVER match English (India) voice
+    // 2. Strict Hindi Voice Detection — NEVER match English voice
     if (normLang === 'hi') {
-      const hiVoice = voices.find(v => 
-        (v.lang.toLowerCase().startsWith('hi') || v.name.toLowerCase().includes('hindi')) &&
-        !v.lang.toLowerCase().startsWith('en')
-      );
+      const hiVoice = voices.find(v => {
+        const vLang = (v?.lang || '').toLowerCase();
+        const vName = (v?.name || '').toLowerCase();
+        return (vLang.startsWith('hi') || vName.includes('hindi')) && !vLang.startsWith('en');
+      });
       return hiVoice || null;
     }
 
-    // 3. English Voice Detection
-    let matched = voices.find(v => v.lang.toLowerCase() === normLocale);
+    // 3. Indian English Voice Detection (Prioritize authentic Indian English tone/accent)
+    if (normLang === 'en') {
+      const indianVoice = voices.find(v => {
+        const vLang = (v?.lang || '').toLowerCase().replace(/_/g, '-');
+        const vName = (v?.name || '').toLowerCase();
+        return (
+          vLang === 'en-in' ||
+          vLang.startsWith('en-in') ||
+          vName.includes('india') ||
+          vName.includes('rishi') ||
+          vName.includes('veena') ||
+          vName.includes('lekha') ||
+          vName.includes('heera') ||
+          vName.includes('ravi') ||
+          vName.includes('neerja') ||
+          vName.includes('prabhat')
+        );
+      });
+      if (indianVoice) return indianVoice;
+
+      // When no native Indian English voice exists on user's device, return null
+      // so ChatMessageSpeaker uses Level 2 Server-Side Cloud Indian English TTS!
+      return null;
+    }
+
+    let matched = voices.find(v => (v?.lang || '').toLowerCase() === normLocale);
     if (matched) return matched;
-    return voices.find(v => v.lang.toLowerCase().startsWith('en')) || null;
+    return voices.find(v => (v?.lang || '').toLowerCase().startsWith('en')) || null;
   }
 
   hasNativeVoiceFor(lang) {
@@ -959,17 +1028,13 @@ class GlobalSpeechManager {
       this._loadVoices();
     }
     const normLang = (lang || 'en').toLowerCase().trim();
-    const targetLocale = SPEECH_LANG_MAP[normLang] || 'en-US';
+    const targetLocale = SPEECH_LANG_MAP[normLang] || 'en-IN';
     return !!this.findBestVoice(normLang, targetLocale);
   }
 
   hasVoiceFor(lang) {
-    const normLang = (lang || 'en').toLowerCase().trim();
-    // For Gujarati and Hindi, server-side cloud TTS fallback is guaranteed
-    if (normLang === 'gu' || normLang === 'hi') {
-      return true;
-    }
-    return this.hasNativeVoiceFor(normLang);
+    // Guaranteed cloud TTS fallback for all languages (Indian English en-IN, Gujarati gu, Hindi hi)
+    return true;
   }
 
   stop() {
@@ -1094,8 +1159,10 @@ class GlobalSpeechManager {
     const chunkLang = typeof chunk === 'string' ? lang : (chunk.lang || lang);
 
     const utterance = new SpeechSynthesisUtterance(chunkText);
-    const targetLocale = SPEECH_LANG_MAP[chunkLang] || 'en-US';
+    const targetLocale = SPEECH_LANG_MAP[chunkLang] || 'en-IN';
     utterance.lang = targetLocale;
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
 
     const bestVoice = this.findBestVoice(chunkLang, targetLocale);
     if (bestVoice) {

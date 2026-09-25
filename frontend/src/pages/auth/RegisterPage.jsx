@@ -18,7 +18,6 @@ export const RegisterPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [organizationName, setOrganizationName] = useState('');
-  const [role, setRole] = useState('CONSULTANT');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,7 +31,7 @@ export const RegisterPage = () => {
     try {
       setLoading(true);
       setError('');
-      const res = await register({ name, email, password, organizationName, role });
+      const res = await register({ name, email, password, organizationName, role: 'CONSULTANT' });
       if (res?.requiresVerification) {
         if (res.warning) {
           showToast(res.warning, 'warning');
@@ -131,21 +130,6 @@ export const RegisterPage = () => {
                 onChange={(e) => setOrganizationName(e.target.value)}
                 style={{ minHeight: 44, fontSize: '0.95rem' }}
               />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">{t.auth?.initialRole || 'Initial Role'}</label>
-              <select
-                className="form-select"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                style={{ minHeight: 44, fontSize: '0.95rem' }}
-              >
-                <option value="CONSULTANT">{t.auth?.roleConsultant || 'Consultant / Architect'}</option>
-                <option value="ANALYST">{t.auth?.roleAnalyst || 'Business Analyst'}</option>
-                <option value="ADMIN">{t.auth?.roleAdmin || 'Transformation Lead (Admin)'}</option>
-                <option value="VIEWER">{t.auth?.roleViewer || 'Stakeholder (Viewer)'}</option>
-              </select>
             </div>
 
             <div className="form-group">

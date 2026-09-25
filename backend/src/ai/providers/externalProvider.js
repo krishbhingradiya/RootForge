@@ -37,6 +37,9 @@ import {
   PROMPT_VERSION as UX_PROMPT_VERSION
 } from '../prompts/user/generateUX.prompt.js';
 import {
+  buildUXPatchPrompt
+} from '../prompts/user/interpretUXCommand.prompt.js';
+import {
   buildDatabasePrompt,
   PROMPT_VERSION as DATABASE_PROMPT_VERSION
 } from '../prompts/user/generateDatabase.prompt.js';
@@ -60,6 +63,7 @@ import {
   validateArchitecture,
   validateProcess,
   validateUX,
+  validateUXPatch,
   validateDatabase,
   validateAPI,
   validatePlanning
@@ -314,7 +318,7 @@ export class ExternalAiProvider {
   }
 
   // =========================================================================
-  // STAGE 6: UX WIREFRAMES
+  // STAGE 6: UX WIREFRAMES & DYNAMIC COMMAND INTERPRETER
   // =========================================================================
   async generateUX(context, solution, architecture, processModel, options = {}) {
     const workspaceId = context?.workspace?.id || 'unknown';
@@ -323,6 +327,16 @@ export class ExternalAiProvider {
       workspaceId,
       promptBuilderResult: buildUXPrompt(context, solution, architecture, processModel, options),
       schemaValidator: validateUX
+    });
+  }
+
+  async interpretUXCommand(context, currentSpec, command, businessDomain = 'GENERAL_ENTERPRISE') {
+    const workspaceId = context?.workspace?.id || 'unknown';
+    return await this._executeStagePipeline({
+      stageName: 'UX Command Interpretation',
+      workspaceId,
+      promptBuilderResult: buildUXPatchPrompt(currentSpec, command, businessDomain),
+      schemaValidator: validateUXPatch
     });
   }
 

@@ -23,6 +23,9 @@ import { VersionHistoryModal } from './components/VersionHistoryModal';
 import { UxExportModal } from './components/UxExportModal';
 import { UxCollaborationPanel } from './components/UxCollaborationPanel';
 
+import { parseDirectiveToPatch, applyUiPatch } from './services/uiPatchEngine';
+import { THEME_ARCHETYPES, createDefaultUiSpecification } from './services/dynamicUiSchema';
+
 export const UxDesignerPage = () => {
   const { id } = useParams();
   const { t } = useLanguage();
@@ -48,7 +51,7 @@ export const UxDesignerPage = () => {
 
   // Requirement & AI Understanding States
   const [requirementText, setRequirementText] = useState('');
-  const [selectedTheme, setSelectedTheme] = useState('warm-cream');
+  const [selectedTheme, setSelectedTheme] = useState('enterprise-slate');
   const [understanding, setUnderstanding] = useState(null);
 
   // Modals
@@ -158,23 +161,122 @@ export const UxDesignerPage = () => {
     }
   };
 
-  // Section H Handler: Natural-Language Prompt Edit
+  // Section H Handler: Natural-Language Prompt Edit & Patch Engine
   const handleApplyPromptEdit = async (prompt, screenId) => {
+    if (!prompt?.trim()) return;
     try {
       setEditing(true);
+      const targetScreenId = screenId || selectedScreenId || uxDesign?.screens?.[0]?.id;
+
+      // 1. Snapshot current state into history stack for instant Undo
       if (uxDesign) {
-        setHistoryStack(prev => [...prev, JSON.parse(JSON.stringify(uxDesign))]);
+        setHistoryStack((prev) => [...prev, JSON.parse(JSON.stringify(uxDesign))]);
         setFutureStack([]);
       }
-      const res = await api.editUXWithPrompt(id, {
-        prompt,
-        screenId: screenId || selectedScreenId
+
+      // 2. Resolve current specification
+      const targetScreen = (uxDesign?.screens || []).find((s) => s.id === targetScreenId) || uxDesign?.screens?.[0];
+      const domain = understanding?.domain || uxDesign?.domain || 'GENERAL_ENTERPRISE';
+      let currentSpec = targetScreen?.uiSpecification || targetScreen?.specification;
+
+      if (!currentSpec || !currentSpec.components || currentSpec.components.length === 0) {
+        currentSpec = createDefaultUiSpecification(targetScreen?.name || 'Operations', domain, selectedTheme);
+        currentSpec.page.id = targetScreen?.id || targetScreenId;
+        currentSpec.page.name = targetScreen?.name || 'Operations Screen';
+      }
+
+      // 3. Fast deterministic local patch check
+      let patch = parseDirectiveToPatch(prompt, currentSpec);
+
+      // If prompt is complex/custom and not fully matched by deterministic local rules, call backend Gemini AI
+      const isRecognizedLocal = patch && (
+        patch.operations?.length > 0 ||
+        (patch.operation && patch.operation !== 'updateLayout' && patch.summary && !patch.summary.startsWith('Processed design modification:'))
+      );
+
+      if (!isRecognizedLocal) {
+        try {
+          const aiRes = await api.interpretUXCommand(id, {
+            command: prompt.trim(),
+            currentSpec,
+            domain
+          });
+          if (aiRes?.patch && (aiRes.patch.operation || aiRes.patch.operations || aiRes.patch.changes)) {
+            patch = aiRes.patch;
+          }
+        } catch (aiErr) {
+          console.warn('Backend AI interpretation fallback to local engine:', aiErr);
+        }
+      }
+
+      // 4. Apply UI Patch atomically
+      const { updatedSpec, patchSummary } = applyUiPatch(currentSpec, patch);
+
+      const isThemeOp = patch.operation === 'updateTheme' || (patch.operations && patch.operations.some(op => op.operation === 'updateTheme' || op.op === 'setTheme'));
+
+      // Apply locally to screen models (isolate screen unless theme operation)
+      const updatedScreens = (uxDesign?.screens || []).map((s) => {
+        if (s.id === targetScreenId) {
+          return {
+            ...s,
+            uiSpecification: updatedSpec,
+            specification: updatedSpec,
+            layout: updatedSpec.layout?.type || s.layout,
+            components: updatedSpec.components || s.components
+          };
+        } else if (isThemeOp && updatedSpec.theme) {
+          // If theme changed, propagate matching theme tokens across other screens too
+          const otherSpec = s.uiSpecification || createDefaultUiSpecification(s.name, domain, selectedTheme);
+          const mergedOtherSpec = {
+            ...otherSpec,
+            theme: {
+              ...(otherSpec.theme || {}),
+              ...updatedSpec.theme
+            }
+          };
+          return {
+            ...s,
+            uiSpecification: mergedOtherSpec,
+            specification: mergedOtherSpec
+          };
+        }
+        return s;
       });
-      const normalized = normalizeUxDesign(res.ux);
-      setUxDesign(normalized);
-      showToast(res.editSummary || `Refined UX based on prompt!`);
+
+      const updatedTokens = {
+        ...(uxDesign?.designTokens || {}),
+        activeThemeId: updatedSpec.theme?.id || uxDesign?.activeThemeId || selectedTheme,
+        palette: updatedSpec.theme
+      };
+
+      if (updatedSpec.theme?.id) {
+        setSelectedTheme(updatedSpec.theme.id);
+      }
+
+      const optimisticUx = {
+        ...uxDesign,
+        screens: updatedScreens,
+        designTokens: updatedTokens,
+        activeThemeId: updatedSpec.theme?.id || uxDesign?.activeThemeId || selectedTheme
+      };
+
+      // Instantly trigger live preview re-render
+      setUxDesign(optimisticUx);
+
+      // 5. Persist Updated Screen Specification to DB
+      try {
+        await api.updateUX(id, {
+          screens: JSON.stringify(updatedScreens),
+          designTokens: JSON.stringify(updatedTokens)
+        });
+      } catch (saveErr) {
+        console.warn('Background UX persistence notice:', saveErr);
+      }
+
+      showToast(patchSummary || `Applied UI modification successfully!`);
     } catch (err) {
-      showToast(err.message || 'Failed to apply prompt edit', 'error');
+      console.warn('AI prompt error (state preserved):', err);
+      showToast(err.message || `Failed to apply UI modification`, 'error');
     } finally {
       setEditing(false);
     }

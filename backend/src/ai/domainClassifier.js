@@ -182,8 +182,10 @@ export function classifyDomain(userMessage = '', context = {}, conversationHisto
  * @param {object} workspace - Workspace object
  * @returns {string} Professional refusal string
  */
-export function getDomainBoundaryResponse(language = 'en', workspace = {}) {
-  const normLang = (language || 'en').toLowerCase().trim();
+export function getDomainBoundaryResponse(arg1 = 'en', arg2 = {}) {
+  const language = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : 'en');
+  const workspace = typeof arg1 === 'object' && arg1 !== null ? arg1 : (typeof arg2 === 'object' && arg2 !== null ? arg2 : {});
+  const normLang = (typeof language === 'string' ? language : 'en').toLowerCase().trim();
   const wsName = workspace?.name ? `the ${workspace.name}` : 'RootForge';
 
   if (normLang === 'gu') {
@@ -198,12 +200,14 @@ export function getDomainBoundaryResponse(language = 'en', workspace = {}) {
 /**
  * Returns a concise, professional greeting response inviting workspace consultation.
  * 
- * @param {string} language - Target language ('en' | 'gu' | 'hi')
- * @param {object} workspace - Workspace object
+ * @param {string|object} arg1 - Language string or Workspace object
+ * @param {object|string} arg2 - Workspace object or Language string
  * @returns {string} Professional greeting string
  */
-export function getGreetingResponse(language = 'en', workspace = {}) {
-  const normLang = (language || 'en').toLowerCase().trim();
+export function getGreetingResponse(arg1 = 'en', arg2 = {}) {
+  const language = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : 'en');
+  const workspace = typeof arg1 === 'object' && arg1 !== null ? arg1 : (typeof arg2 === 'object' && arg2 !== null ? arg2 : {});
+  const normLang = (typeof language === 'string' ? language : 'en').toLowerCase().trim();
   const wsName = workspace?.name || 'your workspace';
 
   if (normLang === 'gu') {

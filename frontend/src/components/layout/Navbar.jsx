@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export const Navbar = ({ onOpenAiDrawer }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const { workspaces, currentWorkspace } = useWorkspace();
   const { lang, setLang, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
@@ -226,7 +226,7 @@ export const Navbar = ({ onOpenAiDrawer }) => {
                 {user?.name?.split(' ')[0] || 'User'}
               </span>
               <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber-text)', fontWeight: 700 }}>
-                {user?.role || 'CONSULTANT'}
+                {isAdmin ? 'ADMIN' : (user?.role === 'ADMIN' ? 'CONSULTANT' : (user?.role || 'CONSULTANT'))}
               </span>
             </div>
             <ChevronDown size={14} color="var(--text-muted)" />
@@ -252,7 +252,7 @@ export const Navbar = ({ onOpenAiDrawer }) => {
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{user?.email}</div>
               </div>
 
-              {user?.role === 'ADMIN' && (
+              {isAdmin && (
                 <Link
                   to="/admin"
                   onClick={() => setUserMenuOpen(false)}

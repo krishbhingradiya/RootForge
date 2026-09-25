@@ -179,7 +179,22 @@ export function normalizeUxDesign(rawUx) {
 
   let screens = [];
   try {
-    screens = typeof rawUx.screens === 'string' ? JSON.parse(rawUx.screens) : (rawUx.screens || []);
+    const rawScreens = typeof rawUx.screens === 'string' ? JSON.parse(rawUx.screens) : (rawUx.screens || []);
+    screens = (rawScreens || []).map((s) => {
+      let uiSpec = s.uiSpecification;
+      if (typeof uiSpec === 'string') {
+        try { uiSpec = JSON.parse(uiSpec); } catch (e) {}
+      }
+      let spec = s.specification;
+      if (typeof spec === 'string') {
+        try { spec = JSON.parse(spec); } catch (e) {}
+      }
+      return {
+        ...s,
+        uiSpecification: uiSpec || spec || null,
+        specification: spec || uiSpec || null
+      };
+    });
   } catch (e) {
     screens = [];
   }

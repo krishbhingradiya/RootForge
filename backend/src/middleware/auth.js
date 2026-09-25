@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-enterprise-jwt-key-2026-solution-builder';
+export const ADMIN_EMAIL = 'mgpro9090@gmail.com';
 
 export const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -31,18 +32,25 @@ export const authenticate = async (req, res, next) => {
         return res.status(401).json({ error: 'User account no longer exists. Please sign in again.' });
       }
 
+      const isRealAdmin = liveUser.email?.trim().toLowerCase() === ADMIN_EMAIL;
+      const effectiveRole = isRealAdmin ? 'ADMIN' : (liveUser.role === 'ADMIN' ? 'CONSULTANT' : liveUser.role);
+
       // Populate req.user with authoritative live database state
       req.user = {
         id: liveUser.id,
         email: liveUser.email,
         name: liveUser.name,
-        role: liveUser.role,
+        role: effectiveRole,
         organizationId: liveUser.organizationId,
         emailVerified: liveUser.emailVerified
       };
     } catch (dbErr) {
-      // In transient DB disconnects, gracefully fallback to valid verified JWT payload
-      req.user = decoded;
+      // In transient DB disconnects, gracefully fallback to valid verified JWT payload with strict admin check
+      const isRealAdmin = decoded.email?.trim().toLowerCase() === ADMIN_EMAIL;
+      req.user = {
+        ...decoded,
+        role: isRealAdmin ? (decoded.role === 'ADMIN' ? 'ADMIN' : 'CONSULTANT') : (decoded.role === 'ADMIN' ? 'CONSULTANT' : decoded.role)
+      };
     }
 
     next();
@@ -56,9 +64,19 @@ export const requireRole = (...allowedRoles) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
-    if (!allowedRoles.includes(req.user.role)) {
+
+    const isRealAdmin = req.user.email?.trim().toLowerCase() === ADMIN_EMAIL;
+    const effectiveRole = isRealAdmin && req.user.role === 'ADMIN' ? 'ADMIN' : (req.user.role === 'ADMIN' ? 'CONSULTANT' : req.user.role);
+
+    if (allowedRoles.includes('ADMIN') && (!isRealAdmin || effectiveRole !== 'ADMIN')) {
       return res.status(403).json({
-        error: `Access denied. Requires one of roles: [${allowedRoles.join(', ')}]. Current role: ${req.user.role}`
+        error: `Access denied. Admin Console is strictly restricted to ${ADMIN_EMAIL}.`
+      });
+    }
+
+    if (!allowedRoles.includes(effectiveRole)) {
+      return res.status(403).json({
+        error: `Access denied. Requires one of roles: [${allowedRoles.join(', ')}]. Current role: ${effectiveRole}`
       });
     }
     next();
@@ -68,4 +86,5 @@ export const requireRole = (...allowedRoles) => {
 export const signToken = (payload) => {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 };
+
 

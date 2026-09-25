@@ -17,6 +17,9 @@ import {
 } from 'lucide-react';
 import { DESIGN_ARCHETYPES } from '../uxViewModel';
 
+import { DynamicUiRenderer } from './DynamicUiRenderer';
+import { THEME_ARCHETYPES, createDefaultUiSpecification, validateAndRepairUiSpecification } from '../services/dynamicUiSchema';
+
 // Sub-renderers for Screen Uniqueness & Render Modes
 import { DashboardScreenView } from './DashboardScreenView';
 import { WorkspaceQueueScreenView } from './WorkspaceQueueScreenView';
@@ -25,6 +28,67 @@ import { AnalyticsScreenView } from './AnalyticsScreenView';
 import { CustomScreenView } from './CustomScreenView';
 import { BlueprintRenderer } from './BlueprintRenderer';
 import { WireframeRenderer } from './WireframeRenderer';
+
+function buildScreenSpecification(screen, activeThemeId, domain, allScreens = []) {
+  if (!screen) return null;
+  const activeTheme = THEME_ARCHETYPES[activeThemeId] || THEME_ARCHETYPES['enterprise-slate'];
+  
+  // Check if screen has a unique, dedicated uiSpecification
+  const hasDedicatedSpec = screen.uiSpecification && screen.uiSpecification.components && screen.uiSpecification.components.length > 0;
+
+  if (hasDedicatedSpec) {
+    const { repairedSpec } = validateAndRepairUiSpecification(screen.uiSpecification, activeThemeId);
+    return repairedSpec;
+  }
+
+  // If screen has rich unique components defined directly
+  if (screen.components && screen.components.length > 0) {
+    const spec = {
+      page: {
+        id: screen.id,
+        name: screen.name,
+        purpose: screen.purpose || screen.description || 'Enterprise workflow screen',
+        businessDomain: domain || 'ENTERPRISE'
+      },
+      layout: {
+        type: screen.layoutType || 'sidebar-grid',
+        columns: 12,
+        density: screen.density || 'comfortable',
+        sidebarPosition: screen.layout?.toLowerCase().includes('left') ? 'left' : 'right',
+        sidebarCollapsible: true
+      },
+      theme: activeTheme,
+      navigation: allScreens.map((s) => ({
+        id: s.id,
+        label: s.name,
+        active: s.id === screen.id,
+        badge: s.stats?.[0]?.value || null
+      })),
+      sections: screen.sections || [
+        { id: 'sec-kpis', title: 'Telemetry KPIs', columnSpan: 12, rowOrder: 1, componentIds: ['cmp-kpi-grid'] },
+        { id: 'sec-main', title: 'Active Operations', columnSpan: 8, rowOrder: 2, componentIds: screen.components.filter(c => c.type !== 'ai_copilot_panel').map(c => c.id) },
+        { id: 'sec-sidebar', title: 'AI Copilot', columnSpan: 4, rowOrder: 3, componentIds: screen.components.filter(c => c.type === 'ai_copilot_panel').map(c => c.id) }
+      ],
+      components: screen.components,
+      actions: screen.actions || [
+        { id: 'act-primary', label: screen.primaryAction || 'Execute Resolution', variant: 'primary', icon: 'Zap' },
+        { id: 'act-export', label: 'Export Telemetry', variant: 'secondary', icon: 'Download' }
+      ],
+      responsiveRules: [
+        { breakpoint: 'mobile', rules: { columns: 1, hideSidebar: false, stackCards: true } }
+      ]
+    };
+    const { repairedSpec } = validateAndRepairUiSpecification(spec, activeThemeId);
+    return repairedSpec;
+  }
+
+  // Generate distinct specification by screen name and type
+  const fallback = createDefaultUiSpecification(screen.name, domain, activeThemeId, screen.layoutType || screen.type);
+  fallback.page.id = screen.id;
+  fallback.page.name = screen.name;
+  if (screen.description) fallback.page.purpose = screen.description;
+  return fallback;
+}
 
 export const GeneratedExperiencePreview = ({
   screen,
@@ -91,20 +155,25 @@ export const GeneratedExperiencePreview = ({
   const isRulesConfig = currentScreen.layoutType === 'table' || currentScreen.layoutType === 'rules_config' || /rules|config|admin|schedule|policy|manager/i.test(currentScreen.name);
   const isAnalytics = currentScreen.layoutType === 'analytics' || /analytics|reporting|throughput|latency|audit/i.test(currentScreen.name);
 
+  const dynamicSpec = buildScreenSpecification(currentScreen, activeThemeId, domain, allScreens);
+  const currentTheme = dynamicSpec?.theme || {};
+
   // Dynamic Theme Custom Properties applied directly to frame
   const themeCssVariables = {
-    '--theme-bg': activeArchetype.bgPrimary,
-    '--theme-surface': activeArchetype.cardBg,
-    '--theme-text': activeArchetype.textPrimary,
-    '--theme-muted': activeArchetype.textMuted,
-    '--theme-accent': activeArchetype.accentColor,
-    '--theme-accent-glow': activeArchetype.accentGlow,
-    '--theme-badge-bg': activeArchetype.badgeBg,
-    '--theme-badge-text': activeArchetype.badgeText,
-    '--theme-border': activeArchetype.border,
-    '--theme-radius': activeArchetype.borderRadius,
-    '--theme-font': activeArchetype.typography,
-    fontFamily: activeArchetype.typography
+    '--theme-bg': currentTheme.background || activeArchetype.bgPrimary,
+    '--theme-surface': currentTheme.surface || currentTheme.cardBg || activeArchetype.cardBg,
+    '--theme-card': currentTheme.cardBg || currentTheme.surface || activeArchetype.cardBg,
+    '--theme-text': currentTheme.text || activeArchetype.textPrimary,
+    '--theme-muted': currentTheme.textMuted || activeArchetype.textMuted,
+    '--theme-primary': currentTheme.primary || activeArchetype.accentColor,
+    '--theme-accent': currentTheme.accent || currentTheme.primary || activeArchetype.accentColor,
+    '--theme-accent-glow': currentTheme.primary ? `${currentTheme.primary}40` : activeArchetype.accentGlow,
+    '--theme-badge-bg': currentTheme.primary ? `${currentTheme.primary}25` : activeArchetype.badgeBg,
+    '--theme-badge-text': currentTheme.accent || currentTheme.primary || activeArchetype.badgeText,
+    '--theme-border': currentTheme.border || activeArchetype.border,
+    '--theme-radius': currentTheme.radius || activeArchetype.borderRadius,
+    '--theme-font': currentTheme.fontFamily || activeArchetype.typography,
+    fontFamily: currentTheme.fontFamily || activeArchetype.typography
   };
 
   const frameClass = isMobile
@@ -141,6 +210,18 @@ export const GeneratedExperiencePreview = ({
 
     // Mode 3 & 4: Live UI (hifi) & Interactive Prototype
     const isPrototype = renderMode === 'prototype';
+    const dynamicSpec = buildScreenSpecification(currentScreen, activeThemeId, domain, allScreens);
+
+    if (dynamicSpec) {
+      return (
+        <DynamicUiRenderer
+          specification={dynamicSpec}
+          deviceView={deviceView}
+          onTriggerAction={handleTriggerAction}
+          onNavigateScreen={onScreenChange}
+        />
+      );
+    }
 
     if (isDashboard && !currentScreen.id?.includes('custom')) {
       return (
@@ -219,10 +300,10 @@ export const GeneratedExperiencePreview = ({
         className={`${frameClass} ux-themed-frame`}
         style={{
           ...themeCssVariables,
-          backgroundColor: activeArchetype.bgPrimary || '#0F172A',
-          color: activeArchetype.textPrimary || '#F8FAFC',
+          backgroundColor: currentTheme.background || activeArchetype.bgPrimary || '#0F172A',
+          color: currentTheme.text || activeArchetype.textPrimary || '#F8FAFC',
           transition: 'background-color 0.4s ease, color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease',
-          borderColor: isMobile ? '#1E232D' : (activeArchetype.border || (isLight ? 'rgba(28, 25, 23, 0.12)' : 'rgba(255,255,255,0.08)'))
+          borderColor: isMobile ? '#1E232D' : (currentTheme.border || activeArchetype.border || (isLight ? 'rgba(28, 25, 23, 0.12)' : 'rgba(255,255,255,0.08)'))
         }}
       >
         {/* TOP BAR: True Smartphone Status Bar vs Desktop Browser Header */}
@@ -405,14 +486,19 @@ export const GeneratedExperiencePreview = ({
         <div
           className="ux-frame-content"
           style={{
-            backgroundColor: activeArchetype.bgPrimary || '#0F172A',
+            backgroundColor: currentTheme.background || activeArchetype.bgPrimary || '#0F172A',
             transition: 'background-color 0.4s ease',
             opacity: isTransitioning ? 0 : 1,
             transform: isTransitioning ? 'translateY(6px)' : 'translateY(0)',
             transitionProperty: 'opacity, transform, background-color',
             transitionDuration: '0.22s, 0.22s, 0.4s',
             transitionTimingFunction: 'ease',
-            padding: isMobile ? '12px' : '20px'
+            padding: isMobile ? '10px 8px 60px' : (deviceView === 'tablet' ? '12px 14px' : '0'),
+            flex: 1,
+            minHeight: 0,
+            overflowY: isMobile || deviceView === 'tablet' ? 'auto' : 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
           }}
         >
           {renderScreenContent()}

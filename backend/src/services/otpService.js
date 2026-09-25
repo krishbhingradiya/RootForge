@@ -38,6 +38,7 @@ export async function getResendCooldownRemaining(email, purpose = null) {
   }
   const latestOtp = await prisma.emailVerificationOTP.findFirst({
     where,
+    select: { createdAt: true },
     orderBy: { createdAt: 'desc' }
   });
 
@@ -191,6 +192,13 @@ export async function verifyEmailOtp({ email, otp }) {
     where: {
       email: normalizedEmail,
       verifiedAt: null
+    },
+    select: {
+      id: true,
+      otpHash: true,
+      expiresAt: true,
+      attempts: true,
+      maxAttempts: true
     },
     orderBy: { createdAt: 'desc' }
   });
@@ -405,6 +413,13 @@ export async function verifyPasswordResetOtp({ email, otp, newPassword }) {
       email: normalizedEmail,
       purpose: 'PASSWORD_RESET',
       verifiedAt: null
+    },
+    select: {
+      id: true,
+      otpHash: true,
+      expiresAt: true,
+      attempts: true,
+      maxAttempts: true
     },
     orderBy: { createdAt: 'desc' }
   });

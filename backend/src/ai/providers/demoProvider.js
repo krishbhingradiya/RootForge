@@ -3524,17 +3524,60 @@ export const demoProvider = {
       updated.designExplanation.rationale += ' Enhanced responsive viewport rules for mobile-first touch ergonomics.';
     }
 
-    // 7. Theme / Dark command center style prompt
-    if (/dark|cyber|command center|slate|warm|nordic|violet/i.test(p)) {
+    // 7. Custom Colors & Theme updates (Pink, Rose, Magenta, Purple, Orange, Dark, Light, etc.)
+    if (/pink|rose|magenta|fuchsia|purple|violet|indigo|orange|amber|emerald|green|cyan|teal|blue|red|crimson|dark|cyber|command center|warm|nordic/i.test(p)) {
       let newTheme = 'enterprise-slate';
-      if (/cyber|command center|darker/i.test(p)) newTheme = 'cyber-ops';
-      else if (/warm|champagne/i.test(p)) newTheme = 'warm-luxury';
-      else if (/nordic|clean/i.test(p)) newTheme = 'nordic-clean';
-      else if (/violet|fintech/i.test(p)) newTheme = 'fintech-violet';
-      else if (/saas|glass/i.test(p)) newTheme = 'saas-modern';
+      let customTokens = null;
+
+      if (/pink|fuchsia|magenta|rose/i.test(p)) {
+        newTheme = 'custom-pink';
+        customTokens = {
+          id: 'custom-pink',
+          name: 'Vibrant Pink',
+          primary: '#EC4899',
+          secondary: '#DB2777',
+          accent: '#F472B6',
+          surface: '#1A0E1C',
+          cardBg: '#1A0E1C',
+          background: '#0D060E',
+          border: 'rgba(236, 72, 153, 0.35)',
+          buttonPrimary: '#EC4899',
+          buttonSecondary: 'rgba(236, 72, 153, 0.2)',
+          text: '#FDF2F8',
+          textMuted: '#F472B6'
+        };
+      } else if (/purple|violet|indigo/i.test(p)) {
+        newTheme = 'fintech-violet';
+      } else if (/orange|amber|gold/i.test(p)) {
+        newTheme = 'saas-modern';
+      } else if (/cyber|command center|darker/i.test(p)) {
+        newTheme = 'cyber-ops';
+      } else if (/warm|champagne/i.test(p)) {
+        newTheme = 'warm-luxury';
+      } else if (/nordic|clean/i.test(p)) {
+        newTheme = 'nordic-clean';
+      }
 
       updated.activeThemeId = newTheme;
+      if (customTokens) {
+        updated.designTokens = {
+          ...(updated.designTokens || {}),
+          ...customTokens,
+          palette: customTokens
+        };
+      }
       updated.designExplanation.rationale += ` Switched active design archetype to ${newTheme} per user prompt.`;
+
+      // Propagate to screen uiSpecifications
+      targetScreens.forEach(ts => {
+        if (ts.uiSpecification) {
+          ts.uiSpecification.theme = {
+            ...(ts.uiSpecification.theme || {}),
+            ...(customTokens || {}),
+            id: newTheme
+          };
+        }
+      });
     }
 
     // Update quality check after modification
@@ -3543,6 +3586,224 @@ export const demoProvider = {
     }
 
     return updated;
+  },
+
+  async interpretUXCommand(context, currentSpec, command, domain = 'GENERAL_ENTERPRISE') {
+    const raw = (command || '').trim();
+    const d = raw.toLowerCase();
+
+    // 1. Compound commands
+    if ((d.includes(' and ') || d.includes(' while ') || d.includes(' also ')) &&
+        (d.includes('move') || d.includes('add') || d.includes('make') || d.includes('set') || d.includes('remove') || d.includes('round') || d.includes('color') || d.includes('colour') || d.includes('button') || d.includes('card'))) {
+      const subClauses = d.split(/ and | while | also /);
+      const ops = [];
+      for (const clause of subClauses) {
+        const sub = await this.interpretUXCommand(context, currentSpec, clause, domain);
+        if (sub.operations) ops.push(...sub.operations);
+        else if (sub.operation && sub.operation !== 'patch') ops.push(sub);
+      }
+      if (ops.length > 0) {
+        return {
+          version: '1.0',
+          operation: 'patch',
+          summary: `Executed compound edits: "${raw}"`,
+          operations: ops
+        };
+      }
+    }
+
+    // 2. Move AI Assistant / Copilot
+    if (d.includes('move') && (d.includes('ai') || d.includes('assistant') || d.includes('copilot'))) {
+      const pos = d.includes('left') ? 'left_sidebar' : 'right_sidebar';
+      return {
+        version: '1.0',
+        operation: 'move',
+        target: 'copilot',
+        position: pos,
+        summary: `Moved AI Decision Assistant to ${d.includes('left') ? 'left' : 'right'} sidebar.`
+      };
+    }
+
+    // 3. Color and Theme customizations
+    if (/pink|fuchsia|magenta|rose/i.test(d)) {
+      const isButtonOnly = /only.*button|button.*only|buttons only|just.*button/i.test(d);
+      const isCardOnly = /only.*card|card.*only|cards only|just.*card/i.test(d);
+      if (isButtonOnly) {
+        return {
+          version: '1.0',
+          operation: 'updateTheme',
+          buttonColor: '#EC4899',
+          accentColor: '#F472B6',
+          summary: 'Updated all buttons to vibrant pink (#EC4899).'
+        };
+      }
+      if (isCardOnly) {
+        return {
+          version: '1.0',
+          operation: 'updateTheme',
+          cardBg: '#1A0E1C',
+          border: 'rgba(236, 72, 153, 0.35)',
+          summary: 'Updated card surfaces to vibrant pink (#1A0E1C).'
+        };
+      }
+      return {
+        version: '1.0',
+        operation: 'updateTheme',
+        colorPalette: 'pink',
+        primaryColor: '#EC4899',
+        accentColor: '#F472B6',
+        buttonColor: '#EC4899',
+        cardBg: '#1A0E1C',
+        border: 'rgba(236, 72, 153, 0.35)',
+        mode: 'dark',
+        summary: 'Converted all cards, buttons, and accents to Vibrant Pink (#EC4899).'
+      };
+    }
+
+    if (/purple|violet|indigo/i.test(d)) {
+      const isButtonOnly = /only.*button|button.*only|buttons only|just.*button/i.test(d);
+      return {
+        version: '1.0',
+        operation: 'updateTheme',
+        colorPalette: 'purple',
+        primaryColor: '#8B5CF6',
+        accentColor: '#A78BFA',
+        buttonColor: '#8B5CF6',
+        ...(isButtonOnly ? {} : { cardBg: '#171328', border: 'rgba(139, 92, 246, 0.3)' }),
+        summary: isButtonOnly ? 'Updated all buttons to Royal Purple (#8B5CF6).' : 'Converted all cards and buttons to Royal Purple (#8B5CF6).'
+      };
+    }
+
+    if (/dark mode|dark theme|darker|cyber|command center|obsidian/i.test(d)) {
+      return {
+        version: '1.0',
+        operation: 'updateTheme',
+        themeId: 'cyber-ops',
+        mode: 'dark',
+        primaryColor: '#10B981',
+        cardBg: '#0B1120',
+        background: '#05080F',
+        summary: 'Switched entire interface to Command Center Cyber Ops dark design system.'
+      };
+    }
+
+    if (/light mode|light theme|white background|warm cream/i.test(d)) {
+      return {
+        version: '1.0',
+        operation: 'updateTheme',
+        mode: 'light',
+        primaryColor: '#2563EB',
+        cardBg: '#FFFFFF',
+        background: '#F8FAFC',
+        text: '#0F172A',
+        summary: 'Switched interface to Crisp Light Mode with dark text.'
+      };
+    }
+
+    // 4. Priority Filter / Filter Bar
+    if (d.includes('priority filter') || d.includes('filter bar') || d.includes('status filter') || d.includes('add filter')) {
+      return {
+        version: '1.0',
+        operation: 'addComponent',
+        position: 'top',
+        component: {
+          id: `cmp-filter-${Date.now()}`,
+          type: 'search_filter_bar',
+          title: 'Priority & Status Filter Bar',
+          props: {
+            searchPlaceholder: 'Search high-priority items, accounts, or active records...',
+            filterChips: ['All Items', 'High Priority', 'SLA Critical', 'AI Flagged', 'Pending Review'],
+            activeFilter: 'High Priority',
+            actionButtons: [
+              { label: '+ Add Work Item', variant: 'primary', icon: 'Plus' },
+              { label: 'Batch Run Actions', variant: 'secondary', icon: 'Zap' }
+            ]
+          }
+        },
+        summary: 'Added priority filter bar to the top of the workspace.'
+      };
+    }
+
+    // 5. Patient Search / Search Bar
+    if (d.includes('patient search') || d.includes('customer search') || d.includes('add search')) {
+      return {
+        version: '1.0',
+        operation: 'addComponent',
+        position: 'top',
+        component: {
+          id: `cmp-search-${Date.now()}`,
+          type: 'search_filter_bar',
+          title: 'Patient MRN & Medical Record Search',
+          props: {
+            searchPlaceholder: 'Search patient by MRN, Name, Phone, or Assigned Physician...',
+            filterChips: ['All Patients', 'Urgent Triage', 'In Exam Room', 'Doctor Consult'],
+            activeFilter: 'All Patients'
+          }
+        },
+        summary: 'Added Patient Search and Triage toolbar.'
+      };
+    }
+
+    // 6. Minimal / Compact density
+    if (d.includes('minimal') || d.includes('compact') || d.includes('reduce visual density') || d.includes('reduce density') || d.includes('cleaner')) {
+      return {
+        version: '1.0',
+        operation: 'updateLayout',
+        density: 'compact',
+        gap: 8,
+        radius: '4px',
+        summary: 'Optimized layout for minimal cognitive friction with compact density and 8px gaps.'
+      };
+    }
+
+    // 7. Remove Chart / Component
+    if (d.includes('remove') || d.includes('delete') || d.includes('hide')) {
+      if (d.includes('chart')) {
+        return { version: '1.0', operation: 'removeComponent', target: 'chart', summary: 'Removed throughput chart from view.' };
+      }
+      if (d.includes('workflow') || d.includes('approval')) {
+        return { version: '1.0', operation: 'removeComponent', target: 'workflow', summary: 'Removed workflow tracker.' };
+      }
+      if (d.includes('kanban')) {
+        return { version: '1.0', operation: 'removeComponent', target: 'kanban', summary: 'Removed Kanban progression board.' };
+      }
+      if (d.includes('filter') || d.includes('search')) {
+        return { version: '1.0', operation: 'removeComponent', target: 'search_filter_bar', summary: 'Removed search and filter bar.' };
+      }
+    }
+
+    // 8. Modern SaaS Dashboard Look
+    if (d.includes('saas') || d.includes('modern')) {
+      return {
+        version: '1.0',
+        operation: 'updateTheme',
+        themeId: 'saas-modern',
+        mode: 'dark',
+        primaryColor: '#D97706',
+        accentColor: '#F59E0B',
+        cardBg: '#1E293B',
+        background: '#0F172A',
+        radius: '12px',
+        summary: 'Transformed layout to Modern SaaS Glassmorphism design system.'
+      };
+    }
+
+    // 9. Rounded / Sharp corners
+    if (d.includes('round') || d.includes('rounded')) {
+      return {
+        version: '1.0',
+        operation: 'updateTheme',
+        radius: '16px',
+        summary: 'Updated all cards and buttons to smooth 16px rounded corners.'
+      };
+    }
+
+    return {
+      version: '1.0',
+      operation: 'updateLayout',
+      density: 'comfortable',
+      summary: `Processed design modification: "${raw}".`
+    };
   },
 
   async generateDatabase(context, legacySolution) {

@@ -48,7 +48,7 @@ export const MobileNav = ({ onOpenAiDrawer }) => {
   const { workspaces, currentWorkspace, selectWorkspace, refreshWorkspace } = useWorkspace();
   const { lang, setLang, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
 
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const [wsSheetOpen, setWsSheetOpen] = useState(false);
@@ -556,7 +556,7 @@ export const MobileNav = ({ onOpenAiDrawer }) => {
                 </button>
 
                 {/* Dedicated Admin Console (Admins only) */}
-                {user?.role === 'ADMIN' && (
+                {isAdmin && (
                   <button
                     type="button"
                     role="menuitem"

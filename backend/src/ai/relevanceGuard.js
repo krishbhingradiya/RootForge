@@ -459,8 +459,10 @@ export async function classifyRelevance(context, userMessage, conversationHistor
  * @param {object} workspace - Workspace record
  * @returns {string} Safe refusal message
  */
-export function getOffTopicResponse(workspace = {}, language = 'en') {
-  const normLang = (language || 'en').toLowerCase().trim();
+export function getOffTopicResponse(arg1 = {}, arg2 = 'en') {
+  const language = typeof arg1 === 'string' ? arg1 : (typeof arg2 === 'string' ? arg2 : 'en');
+  const workspace = typeof arg1 === 'object' && arg1 !== null ? arg1 : (typeof arg2 === 'object' && arg2 !== null ? arg2 : {});
+  const normLang = (typeof language === 'string' ? language : 'en').toLowerCase().trim();
   const wsName = workspace.name ? `the ${workspace.name}` : 'the current business';
   if (normLang === 'hi') {
     return `क्षमा करें, मैं केवल ${workspace.name || 'इस व्यवसाय'} पहल से संबंधित प्रश्नों में ही मदद कर सकता हूँ। कृपया मुझसे इसकी आवश्यकताओं, उपयोगकर्ताओं, वर्कफ़्लो, प्रौद्योगिकी, बाधाओं, एकीकरण या कार्यान्वयन के बारे में पूछें।`;
@@ -663,7 +665,7 @@ function _computeDynamicConsultantFallback(context, userMessage = '', intent = n
 
 ### Phase 1: Intake & Request Initiation
 * **Actor:** ${actor1}
-1. **Access Portal/Channel:** The ${actor1.toLowerCase()} initiates the request via a self-service responsive interface or front-desk intake.
+1. **Access Portal/Channel:** The ${(actor1 || 'user').toLowerCase()} initiates the request via a self-service responsive interface or front-desk intake.
 2. **Parameters & Preferences:** Enters requested details, dates, times, or service parameters with real-time field validation.
 3. **Temporary Hold:** The system places a dynamic reservation lock (e.g., 5-minute hold) on matching availability to prevent concurrency conflicts.
 
@@ -671,7 +673,7 @@ function _computeDynamicConsultantFallback(context, userMessage = '', intent = n
 * **Actor:** Automated System & ${actor2}
 1. **Roster & Quota Verification:** The validation engine cross-references real-time schedules, staffing capacity, and operational constraints.
 2. **Conflict Avoidance:** If conflicting reservations or resource constraints arise, the system dynamically calculates and suggests adjacent open slots.
-3. **Triage / Special Handling:** Any exceptions or high-priority requests route immediately to ${actor2.toLowerCase()} for approval.
+3. **Triage / Special Handling:** Any exceptions or high-priority requests route immediately to ${(actor2 || 'staff').toLowerCase()} for approval.
 
 ### Phase 3: Automated Confirmation & Notification Dispatch
 * **Actor:** Automated Notification Engine
@@ -862,8 +864,8 @@ Monitor these metrics continuously via real-time operational dashboards for dail
       };
 
     default: {
-      const focus = userMessage.trim().replace(/\?$/, '');
-      const lower = userMessage.toLowerCase();
+      const focus = (userMessage || '').trim().replace(/\?$/, '');
+      const lower = (userMessage || '').toLowerCase();
       if (lower.includes('whatsapp')) {
         return {
           message: `Regarding WhatsApp integration for ${ws.name || 'this initiative'}:

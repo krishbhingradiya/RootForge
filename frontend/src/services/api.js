@@ -35,9 +35,9 @@ export function setApiServerUrl(url) {
 }
 
 
-function inferLoadingMessage(endpoint, options = {}) {
+function inferLoadingMessage(endpoint = '', options = {}) {
   const method = (options.method || 'GET').toUpperCase();
-  const ep = endpoint.toLowerCase();
+  const ep = (endpoint || '').toLowerCase();
 
   if (options.silentLoading) return null;
 
@@ -48,7 +48,7 @@ function inferLoadingMessage(endpoint, options = {}) {
 
   // Solution Lifecycle Section switching (GET requests)
   if (method === 'GET') {
-    if (ep.includes('/discovery')) return 'Understanding your business...';
+    if (ep.includes('/discovery')) return null;
     if (ep.includes('/analysis')) return 'Analyzing your requirements...';
     if (ep.includes('/solution')) return 'Designing your solution...';
     if (ep.includes('/process')) return 'Mapping your business process...';
@@ -76,7 +76,10 @@ function inferLoadingMessage(endpoint, options = {}) {
   return null;
 }
 
-async function request(endpoint, options = {}) {
+// In-flight request cache for deduplication of concurrent GET requests
+const inFlightRequests = new Map();
+
+async function executeRequest(endpoint, options = {}) {
   const token = localStorage.getItem('aisb_token');
   const headers = {
     ...(options.headers || {})
@@ -100,25 +103,67 @@ async function request(endpoint, options = {}) {
     }));
   }
 
+  const baseUrl = getApiBaseUrl();
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  // Prevent double /api/api if endpoint already contains leading /api
+  const cleanEndpoint = normalizedEndpoint.startsWith('/api/')
+    ? normalizedEndpoint.slice(4)
+    : normalizedEndpoint;
+  const fullUrl = `${baseUrl}${cleanEndpoint}`;
+  const method = (options.method || 'GET').toUpperCase();
+
+  // Determine appropriate timeout (default: 15s; AI / exports: 75s)
+  const isAiOrExport = cleanEndpoint.includes('/analysis') || cleanEndpoint.includes('/architecture') || cleanEndpoint.includes('/solution') || cleanEndpoint.includes('/process') || cleanEndpoint.includes('/ux') || cleanEndpoint.includes('/database') || cleanEndpoint.includes('/planning') || cleanEndpoint.includes('/exports') || cleanEndpoint.includes('/discovery/messages') || cleanEndpoint.includes('/messages');
+  const timeoutMs = options.timeout || (isAiOrExport ? 75000 : 15000);
+
+  const controller = new AbortController();
+  const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const reqStartTime = performance.now();
+  const startTimeIso = new Date().toISOString();
+
   try {
-    const baseUrl = getApiBaseUrl();
     let response;
     try {
-      response = await fetch(`${baseUrl}${endpoint}`, {
+      response = await fetch(fullUrl, {
         ...options,
-        headers
+        headers,
+        signal: options.signal || controller.signal
       });
     } catch (networkErr) {
+      if (networkErr?.name === 'AbortError') {
+        const timeoutErr = new Error(`Request timed out after ${timeoutMs / 1000}s. Please check your network connection.`);
+        timeoutErr.isTimeout = true;
+        throw timeoutErr;
+      }
+      if (import.meta.env.DEV || (typeof window !== 'undefined' && window.__DEBUG_API__)) {
+        console.warn('[API Network Error]', {
+          url: fullUrl,
+          method,
+          authenticated: Boolean(token),
+          networkError: networkErr?.message || 'Network request failed'
+        });
+      }
       const targetHint = baseUrl || 'https://rootforge.onrender.com/api';
       const err = new Error(`Cannot reach RootForge server at ${targetHint}. Please verify your internet connection or backend server status.`);
       err.isNetworkError = true;
       err.cause = networkErr;
       throw err;
+    } finally {
+      clearTimeout(timeoutTimer);
+    }
+
+    const durationMs = Math.round(performance.now() - reqStartTime);
+
+    // Development performance telemetry logging (never logs sensitive payload data)
+    if (import.meta.env.DEV) {
+      const perfIcon = durationMs > 1000 ? '🐢' : durationMs > 300 ? '⚡' : '🚀';
+      console.log(`${perfIcon} [API Perf] ${method} ${cleanEndpoint} -> HTTP ${response.status} (${durationMs}ms) [${startTimeIso}]`);
     }
 
     if (response.status === 401) {
       // If not on login or register, clear token
-      if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register') && window.location.pathname !== '/') {
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register') && window.location.pathname !== '/') {
         localStorage.removeItem('aisb_token');
         localStorage.removeItem('aisb_user');
         window.location.href = '/login?expired=true';
@@ -128,7 +173,18 @@ async function request(endpoint, options = {}) {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      if (import.meta.env.DEV || (typeof window !== 'undefined' && window.__DEBUG_API__)) {
+        console.warn('[API Error Response]', {
+          url: fullUrl,
+          method,
+          status: response.status,
+          authenticated: Boolean(token),
+          error: data.error || `HTTP Error ${response.status}`,
+          code: data.code
+        });
+      }
       const err = new Error(data.error || `HTTP Error ${response.status}`);
+      err.status = response.status;
       err.details = data.details;
       err.code = data.code;
       err.data = data;
@@ -143,6 +199,27 @@ async function request(endpoint, options = {}) {
       }));
     }
   }
+}
+
+async function request(endpoint, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+
+  // Deduplicate concurrent identical GET requests
+  if (method === 'GET' && !options.skipDeduplication) {
+    const dedupeKey = `GET:${endpoint}`;
+    if (inFlightRequests.has(dedupeKey)) {
+      return inFlightRequests.get(dedupeKey);
+    }
+
+    const promise = executeRequest(endpoint, options).finally(() => {
+      inFlightRequests.delete(dedupeKey);
+    });
+
+    inFlightRequests.set(dedupeKey, promise);
+    return promise;
+  }
+
+  return executeRequest(endpoint, options);
 }
 
 export const api = {
@@ -242,7 +319,9 @@ export const api = {
   getUX: (id) => request(`/workspaces/${id}/ux`),
   generateUX: (id, payload) => request(`/workspaces/${id}/ux`, { method: 'POST', body: payload ? JSON.stringify(payload) : undefined }),
   analyzeUXRequirement: (id, requirementText) => request(`/workspaces/${id}/ux/analyze`, { method: 'POST', body: JSON.stringify({ requirementText }) }),
+  interpretUXCommand: (id, payload) => request(`/workspaces/${id}/ux/interpret-command`, { method: 'POST', body: JSON.stringify(payload) }),
   editUXWithPrompt: (id, payload) => request(`/workspaces/${id}/ux/edit-prompt`, { method: 'POST', body: JSON.stringify(payload) }),
+  patchUX: (id, payload) => request(`/workspaces/${id}/ux/patch`, { method: 'POST', body: JSON.stringify(payload) }),
   applyUXRecommendation: (id, recommendationId) => request(`/workspaces/${id}/ux/apply-recommendation`, { method: 'POST', body: JSON.stringify({ recommendationId }) }),
   approveUX: (id, notes) => request(`/workspaces/${id}/ux/approve`, { method: 'POST', body: JSON.stringify({ notes }) }),
   exportUX: (id, format) => request(`/workspaces/${id}/ux/export`, { method: 'POST', body: JSON.stringify({ format }) }),
@@ -288,11 +367,60 @@ export const api = {
   previewExport: (id, format, scope) => request(`/workspaces/${id}/exports/preview`, { method: 'POST', body: JSON.stringify({ format, scope }) }),
   getExports: (id) => request(`/workspaces/${id}/exports`),
 
-  // Admin
+  // Admin Platform Suite
   getAdminMetrics: () => request('/admin/metrics'),
-  getAdminUsers: () => request('/admin/users'),
+  getAdminUsers: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/users${qs ? `?${qs}` : ''}`);
+  },
+  getAdminUserDetail: (userId) => request(`/admin/users/${userId}`),
   createAdminUser: (payload) => request('/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
-  updateUserRole: (userId, role) => request(`/admin/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) })
+  updateAdminUser: (userId, payload) => request(`/admin/users/${userId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAdminUser: (userId) => request(`/admin/users/${userId}`, { method: 'DELETE' }),
+  
+  // Organizations
+  getAdminOrganizations: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/organizations${qs ? `?${qs}` : ''}`);
+  },
+  createAdminOrganization: (payload) => request('/admin/organizations', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAdminOrganization: (orgId, payload) => request(`/admin/organizations/${orgId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAdminOrganization: (orgId) => request(`/admin/organizations/${orgId}`, { method: 'DELETE' }),
+
+  // Workspaces & Projects
+  getAdminWorkspaces: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/workspaces${qs ? `?${qs}` : ''}`);
+  },
+  updateAdminWorkspace: (wsId, payload) => request(`/admin/workspaces/${wsId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAdminWorkspace: (wsId) => request(`/admin/workspaces/${wsId}`, { method: 'DELETE' }),
+
+  // RBAC Roles
+  getAdminRoles: () => request('/admin/roles'),
+
+  // AI & Governance
+  getAdminAiConfig: () => request('/admin/ai/config'),
+  updateAdminAiConfig: (payload) => request('/admin/ai/config', { method: 'POST', body: JSON.stringify(payload) }),
+  getAdminAiUsage: () => request('/admin/ai/usage'),
+  getAdminAiHealth: () => request('/admin/ai/health'),
+
+  // Audit Logs
+  getAdminAuditLogs: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
+  },
+
+  // Enterprise Integrations
+  getAdminIntegrations: () => request('/admin/integrations'),
+  toggleAdminIntegration: (id, isEnabled) => request(`/admin/integrations/${id}/toggle`, { method: 'POST', body: JSON.stringify({ isEnabled }) }),
+
+  // Alerts
+  getAdminAlerts: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/admin/alerts${qs ? `?${qs}` : ''}`);
+  },
+  markAdminAlertRead: (id) => request(`/admin/alerts/${id}/read`, { method: 'PATCH' }),
+  broadcastAdminAlert: (payload) => request('/admin/alerts/broadcast', { method: 'POST', body: JSON.stringify(payload) })
 };
 
 export default api;

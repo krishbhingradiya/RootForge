@@ -268,7 +268,8 @@ export class BrevoEmailService {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8000)
       });
 
       const data = await response.json().catch(() => ({}));
@@ -498,7 +499,8 @@ export class BrevoEmailService {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8000)
       });
 
       const data = await response.json().catch(() => ({}));

@@ -4,33 +4,55 @@ import { nativeStorage } from '../services/nativeService';
 
 const AuthContext = createContext(null);
 
+export const ADMIN_EMAIL = 'mgpro9090@gmail.com';
+
+const sanitizeUser = (rawUser) => {
+  if (!rawUser) return null;
+  const isRealAdmin = rawUser.email?.trim().toLowerCase() === ADMIN_EMAIL;
+  return {
+    ...rawUser,
+    role: isRealAdmin ? (rawUser.role === 'ADMIN' ? 'ADMIN' : 'ADMIN') : (rawUser.role === 'ADMIN' ? 'CONSULTANT' : rawUser.role)
+  };
+};
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
+  const [user, setUserState] = useState(() => {
     try {
       const stored = localStorage.getItem('aisb_user');
-      return stored ? JSON.parse(stored) : null;
+      return stored ? sanitizeUser(JSON.parse(stored)) : null;
     } catch {
       return null;
     }
   });
+
+  const setUser = (newUser) => {
+    setUserState(sanitizeUser(newUser));
+  };
   const [token, setToken] = useState(() => localStorage.getItem('aisb_token') || null);
-  const [loading, setLoading] = useState(true);
+  // Fast bootstrap: If user and token already exist in storage, app is immediately interactive
+  const [loading, setLoading] = useState(() => {
+    const storedTok = typeof localStorage !== 'undefined' ? localStorage.getItem('aisb_token') : null;
+    const storedUsr = typeof localStorage !== 'undefined' ? localStorage.getItem('aisb_user') : null;
+    return !storedTok && !storedUsr;
+  });
 
   useEffect(() => {
-    async function verifyAuth() {
-      let activeToken = token;
-      let activeUser = user;
+    let isMounted = true;
+
+    async function bootstrapSession() {
+      let activeToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('aisb_token') : null);
+      let activeUser = user || (typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('aisb_user') || 'null') : null);
 
       // On mobile / Capacitor, restore from nativeStorage if localStorage is empty
       if (!activeToken) {
         try {
           const nativeTok = await nativeStorage.get('aisb_token');
-          if (nativeTok) {
+          if (nativeTok && isMounted) {
             activeToken = nativeTok;
             setToken(nativeTok);
             localStorage.setItem('aisb_token', nativeTok);
             const nativeUsr = await nativeStorage.get('aisb_user');
-            if (nativeUsr) {
+            if (nativeUsr && isMounted) {
               const parsedUsr = JSON.parse(nativeUsr);
               activeUser = parsedUsr;
               setUser(parsedUsr);
@@ -42,21 +64,34 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
+      // If active token exists and we don't have user, or to validate in background
       if (activeToken) {
-        try {
-          const res = await api.getMe();
-          setUser(res.user);
-          localStorage.setItem('aisb_user', JSON.stringify(res.user));
-          nativeStorage.set('aisb_user', JSON.stringify(res.user)).catch(() => {});
-        } catch (err) {
-          console.warn('Session verification failed:', err.message);
-          logout();
+        if (!activeUser) {
+          try {
+            const res = await api.getMe();
+            if (isMounted) {
+              setUser(res.user);
+              localStorage.setItem('aisb_user', JSON.stringify(res.user));
+              nativeStorage.set('aisb_user', JSON.stringify(res.user)).catch(() => {});
+            }
+          } catch (err) {
+            console.warn('Session verification failed:', err.message);
+            if (isMounted) logout();
+          }
         }
       }
-      setLoading(false);
+
+      if (isMounted) {
+        setLoading(false);
+      }
     }
-    verifyAuth();
-  }, [token]);
+
+    bootstrapSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Run ONLY once on mount for session restoration
 
   const login = async (email, password) => {
     const res = await api.login(email, password);
@@ -114,6 +149,8 @@ export const AuthProvider = ({ children }) => {
     nativeStorage.remove('aisb_pending_verify_email').catch(() => {});
   };
 
+  const isRealAdmin = Boolean(user && user.email && user.email.trim().toLowerCase() === ADMIN_EMAIL && user.role === 'ADMIN');
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -124,7 +161,8 @@ export const AuthProvider = ({ children }) => {
       verifyEmailOtp,
       resendVerificationOtp,
       logout,
-      isAuthenticated: !!user
+      isAuthenticated: !!user,
+      isAdmin: isRealAdmin
     }}>
       {children}
     </AuthContext.Provider>

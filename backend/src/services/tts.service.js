@@ -178,15 +178,18 @@ function splitLongSegment(text, maxLen = 150) {
 
 /**
  * Downloads audio frame buffer for a single short text segment via Google TTS.
+ * Uses authentic Indian English (en-IN), Gujarati (gu), and Hindi (hi).
  * 
  * @param {string} text Segment text (under 200 chars)
- * @param {string} lang Language code ('gu', 'hi', 'en')
+ * @param {string} lang Language code ('gu', 'hi', 'en', 'en-IN')
  * @returns {Promise<Buffer>}
  */
 function fetchSegmentAudio(text, lang) {
   return new Promise((resolve, reject) => {
     const encodedText = encodeURIComponent(text);
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodedText}`;
+    // Explicitly target Indian English accent for English phrases
+    const targetLocale = (lang === 'en' || lang === 'en-in' || lang === 'en-IN') ? 'en-IN' : (lang === 'gu' ? 'gu' : (lang === 'hi' ? 'hi' : lang));
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${targetLocale}&client=tw-ob&q=${encodedText}`;
 
     const req = https.get(
       url,

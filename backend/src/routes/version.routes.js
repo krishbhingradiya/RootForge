@@ -20,7 +20,14 @@ router.get('/:id/versions', authenticate, async (req, res) => {
         workspaceId: req.params.id,
         ...(artifactType && { artifactType })
       },
-      include: {
+      select: {
+        id: true,
+        workspaceId: true,
+        artifactType: true,
+        versionNumber: true,
+        notes: true,
+        createdById: true,
+        createdAt: true,
         createdBy: { select: { id: true, name: true, email: true } }
       },
       orderBy: { createdAt: 'desc' }

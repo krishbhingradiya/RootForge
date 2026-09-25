@@ -42,13 +42,13 @@ const SECTION_MESSAGES = {
 export const Sidebar = () => {
   const { workspaces, currentWorkspace, stages } = useWorkspace();
   const { t, lang } = useLanguage();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { startLoading } = useLoading();
   const location = useLocation();
   const wsId = currentWorkspace?.id || workspaces?.[0]?.id || 'ws-demo-customer-support';
 
   const handleNavClick = (key, path) => {
-    if (location.pathname !== path) {
+    if (location.pathname !== path && key !== 'discovery') {
       startLoading(SECTION_MESSAGES[key] || 'Thinking...', 'section_nav');
     }
   };
@@ -145,7 +145,7 @@ export const Sidebar = () => {
 
       {/* Bottom Footer Section */}
       <div style={{ padding: '12px 8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {user?.role === 'ADMIN' && (
+        {isAdmin && (
           <NavLink
             to="/admin"
             style={({ isActive }) => ({

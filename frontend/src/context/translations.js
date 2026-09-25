@@ -164,7 +164,9 @@ export const translations = {
       persistedBadge: 'PERSISTED IN DATABASE',
       placeholder: 'Ask the AI Consultant or describe system constraints...',
       send: 'Send',
-      emptyConversation: 'Start discovery by asking a question or choosing an inquiry prompt on the left.'
+      emptyConversation: 'Start discovery by asking a question or choosing an inquiry prompt on the left.',
+      loadingTitle: 'Loading Discovery Workspace...',
+      loadingSubtitle: 'Connecting AI consultant and workspace context...'
     },
     analysis: {
       title: 'Business Analysis & Diagnostics',
@@ -680,6 +682,7 @@ export const translations = {
         unsupported: 'Speech recognition not supported in this browser. You can continue typing.',
         error: 'Voice recognition error. Click to retry.',
         noSpeech: 'No speech detected. Please try again.',
+        tooShort: 'Recording was too short. Please try again.',
         network: 'Voice recognition network error. Please try again.',
         speak: 'Listen to response',
         listen: 'Listen',
@@ -1370,6 +1373,7 @@ export const translations = {
         unsupported: 'इस ब्राउज़र में वाक् पहचान समर्थित नहीं है। आप लिखकर जारी रख सकते हैं।',
         error: 'वाक् पहचान में त्रुटि। पुनः प्रयास करें।',
         noSpeech: 'कोई आवाज नहीं मिली। कृपया पुनः प्रयास करें।',
+        tooShort: 'रिकॉर्डिंग बहुत छोटी थी। कृपया पुनः प्रयास करें।',
         network: 'वाक् पहचान नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।',
         speak: 'प्रतिक्रिया सुनें',
         listen: 'सुनें',
@@ -2060,6 +2064,7 @@ export const translations = {
         unsupported: 'આ બ્રાઉઝરમાં સ્પીચ ઓળખ સપોર્ટેડ નથી. તમે ટાઇપ કરવાનું ચાલુ રાખી શકો છો.',
         error: 'સ્પીચ ઓળખમાં ભૂલ. ફરી પ્રયાસ કરો.',
         noSpeech: 'કોઈ અવાજ ઓળખાયો નથી. કૃપા કરીને ફરી પ્રયાસ કરો.',
+        tooShort: 'રેકોર્ડિંગ ખૂબ ટૂંકું હતું. કૃપા કરીને ફરી પ્રયાસ કરો.',
         network: 'સ્પીચ ઓળખ નેટવર્ક ભૂલ. કૃપા કરીને ફરી પ્રયાસ કરો.',
         speak: 'સાંભળો',
         listen: 'સાંભળો',

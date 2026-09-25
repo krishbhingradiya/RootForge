@@ -245,6 +245,141 @@ router.post('/:id/ux/edit-prompt', authenticate, async (req, res) => {
   }
 });
 
+// Interpret UX Command (Gemini / AI Intent Interpreter)
+router.post('/:id/ux/interpret-command', authenticate, async (req, res) => {
+  try {
+    await assertWorkspaceAccess(req.params.id, req.user);
+    const { command, currentSpec, domain } = req.body;
+    if (!command || !command.trim()) {
+      return res.status(400).json({ error: 'Command text is required.' });
+    }
+
+    const context = await getWorkspaceContext(req.params.id, req.user);
+    const resolvedDomain = domain || context?.domain || context?.workspace?.domain || 'GENERAL_ENTERPRISE';
+
+    const interpretation = await aiService.interpretUXCommand(
+      context,
+      currentSpec,
+      command.trim(),
+      resolvedDomain
+    );
+
+    res.json(interpretation);
+  } catch (error) {
+    handleRouteError(res, error, 'Failed to interpret UX command.');
+  }
+});
+
+// Apply Structured UI Patch (Incremental update system)
+router.post('/:id/ux/patch', authenticate, async (req, res) => {
+  try {
+    await assertWorkspaceWriteAccess(req.params.id, req.user);
+    const { patch, screenId } = req.body;
+    if (!patch || !patch.operation) {
+      return res.status(400).json({ error: 'Valid patch operation is required.' });
+    }
+
+    const current = await prisma.uXDesign.findFirst({
+      where: { workspaceId: req.params.id },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!current) {
+      return res.status(404).json({ error: 'No UX design found to patch.' });
+    }
+
+    const enriched = enrichUxRecord(current);
+    let screens = enriched.screens || [];
+    let tokens = enriched.designTokens || {};
+    let summary = patch.summary || 'Applied structured UI patch';
+
+    // Apply patch operations
+    const op = patch.operation;
+    if (op === 'updateTheme') {
+      const themeId = patch.themeId || patch.tokens?.id || 'enterprise-slate';
+      tokens.activeThemeId = themeId;
+      enriched.activeThemeId = themeId;
+      summary = `Updated design theme to ${themeId}`;
+    } else if (op === 'addComponent') {
+      const targetScreen = screens.find(s => s.id === screenId) || screens[0];
+      if (targetScreen) {
+        targetScreen.components = targetScreen.components || [];
+        if (patch.position === 'top' || patch.position === 'start') {
+          targetScreen.components.unshift(patch.component);
+        } else {
+          targetScreen.components.push(patch.component);
+        }
+        summary = `Added ${patch.component?.title || 'component'} to ${targetScreen.name}`;
+      }
+    } else if (op === 'removeComponent') {
+      screens.forEach(s => {
+        s.components = (s.components || []).filter(c => c.id !== patch.target && c.type !== patch.target);
+      });
+      summary = `Removed component ${patch.target}`;
+    } else if (op === 'move') {
+      const targetScreen = screens.find(s => s.id === screenId) || screens[0];
+      if (targetScreen && targetScreen.components) {
+        if (patch.position === 'right_sidebar' || patch.destination === 'right-sidebar') {
+          targetScreen.layout = targetScreen.layout ? `${targetScreen.layout} (AI Copilot docked to right sidebar)` : 'Split-view with right sidebar';
+          summary = `Moved AI assistant to right sidebar`;
+        }
+      }
+    } else if (op === 'replaceComponent') {
+      const targetScreen = screens.find(s => s.id === screenId) || screens[0];
+      if (targetScreen && targetScreen.components) {
+        const idx = targetScreen.components.findIndex(c => c.id === patch.target || c.type === patch.target);
+        if (idx !== -1 && patch.replacement) {
+          targetScreen.components[idx] = patch.replacement;
+          summary = `Replaced ${patch.target} with ${patch.replacement.title}`;
+        }
+      }
+    }
+
+    const nextVersion = current.version + 1;
+    const tokensToStore = {
+      ...tokens,
+      activeThemeId: enriched.activeThemeId,
+      understanding: enriched.understanding,
+      userJourney: enriched.userJourney,
+      requirementCoverage: enriched.requirementCoverage,
+      uxQualityCheck: enriched.uxQualityCheck,
+      uxRecommendations: enriched.uxRecommendations,
+      designExplanation: enriched.designExplanation
+    };
+
+    const newUx = await prisma.uXDesign.create({
+      data: {
+        workspaceId: req.params.id,
+        title: current.title,
+        screens: JSON.stringify(screens),
+        designTokens: JSON.stringify(tokensToStore),
+        version: nextVersion,
+        status: current.status
+      }
+    });
+
+    const enrichedUpdated = enrichUxRecord(newUx);
+
+    await prisma.artifactVersion.create({
+      data: {
+        workspaceId: req.params.id,
+        artifactType: 'UX',
+        versionNumber: nextVersion,
+        snapshotData: JSON.stringify(enrichedUpdated),
+        notes: `UI Patch: ${summary} (v${nextVersion})`,
+        createdById: req.user.id
+      }
+    });
+
+    res.json({
+      ux: enrichedUpdated,
+      patchSummary: summary
+    });
+  } catch (error) {
+    handleRouteError(res, error, 'Failed to apply UI patch.');
+  }
+});
+
 // Apply / Toggle Actionable UX Recommendation
 router.post('/:id/ux/apply-recommendation', authenticate, async (req, res) => {
   try {

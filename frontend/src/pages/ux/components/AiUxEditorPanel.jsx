@@ -50,27 +50,53 @@ export const AiUxEditorPanel = ({
     }
   }, [selectedScreen?.id]);
 
+  const [statusMessage, setStatusMessage] = useState(null);
+
+  const sidebarPos = selectedScreen?.uiSpecification?.layout?.sidebarPosition || selectedScreen?.layout?.toLowerCase().includes('left') ? 'left' : 'right';
+  const isDark = selectedScreen?.uiSpecification?.theme?.mode !== 'light';
+
   const QUICK_PROMPTS = [
-    'Add a priority filter and move the AI assistant to the right',
-    'Move the AI assistant to the right',
+    'Add a priority filter',
+    sidebarPos === 'right' ? 'Move AI assistant to the left' : 'Move AI assistant to the right',
     'Add patient search',
     'Make this dashboard more minimal',
     'Use a darker command center style',
     'Make this mobile-friendly',
     'Reduce visual density',
-    'Add an approval workflow'
+    'Add an approval workflow',
+    'Add a kanban board',
+    isDark ? 'Switch to light mode' : 'Switch to dark mode'
   ];
 
   const handleSubmit = (e) => {
     e?.preventDefault();
     if (!promptText.trim()) return;
+    setStatusMessage('Applying modification...');
     onApplyPromptEdit(promptText.trim(), selectedScreen?.id);
     setPromptText('');
+    setTimeout(() => {
+      setStatusMessage('Change applied.');
+      setTimeout(() => setStatusMessage(null), 3000);
+    }, 400);
+  };
+
+  const handleQuickDirective = (qp) => {
+    setStatusMessage(`Applying: ${qp}...`);
+    onApplyPromptEdit(qp, selectedScreen?.id);
+    setTimeout(() => {
+      setStatusMessage('Change applied.');
+      setTimeout(() => setStatusMessage(null), 3000);
+    }, 400);
   };
 
   const handleRegenerateFromSpec = () => {
     if (!specPromptText.trim()) return;
+    setStatusMessage('Synthesizing updated screen specification...');
     onApplyPromptEdit(specPromptText.trim(), selectedScreen?.id);
+    setTimeout(() => {
+      setStatusMessage('Change applied.');
+      setTimeout(() => setStatusMessage(null), 3000);
+    }, 600);
   };
 
   const handleResetSpec = () => {
@@ -90,21 +116,22 @@ export const AiUxEditorPanel = ({
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {/* Mode Switcher */}
-          <div style={{ display: 'flex', backgroundColor: 'var(--bg-subtle)', padding: 2, borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', backgroundColor: 'var(--bg-subtle)', padding: 3, borderRadius: 6, border: '1px solid var(--border-subtle)', gap: 2 }}>
             <button
               type="button"
               onClick={() => setEditorMode('prompt')}
               style={{
                 fontSize: '0.725rem',
                 fontWeight: 600,
-                padding: '3px 10px',
+                padding: '4px 12px',
                 borderRadius: 4,
                 border: 'none',
                 backgroundColor: editorMode === 'prompt' ? 'var(--accent-amber)' : 'transparent',
                 color: editorMode === 'prompt' ? '#FFFFFF' : 'var(--text-muted)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
               }}
             >
               Quick Prompt
@@ -115,12 +142,13 @@ export const AiUxEditorPanel = ({
               style={{
                 fontSize: '0.725rem',
                 fontWeight: 600,
-                padding: '3px 10px',
+                padding: '4px 12px',
                 borderRadius: 4,
                 border: 'none',
                 backgroundColor: editorMode === 'spec' ? 'var(--accent-amber)' : 'transparent',
                 color: editorMode === 'spec' ? '#FFFFFF' : 'var(--text-muted)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
               }}
             >
               AI Design Prompt & Spec
@@ -132,10 +160,10 @@ export const AiUxEditorPanel = ({
             onClick={onUndo}
             disabled={!canUndo || editing}
             className="btn btn-secondary btn-sm"
-            style={{ fontSize: '0.75rem', padding: '3px 8px', opacity: canUndo ? 1 : 0.5 }}
+            style={{ fontSize: '0.75rem', padding: '4px 10px', opacity: canUndo ? 1 : 0.45, display: 'inline-flex', alignItems: 'center', gap: 4 }}
             title="Undo last AI edit"
           >
-            <Undo2 size={12} /> Undo
+            <Undo2 size={13} /> Undo
           </button>
 
           <button
@@ -143,10 +171,10 @@ export const AiUxEditorPanel = ({
             onClick={onRedo}
             disabled={!canRedo || editing}
             className="btn btn-secondary btn-sm"
-            style={{ fontSize: '0.75rem', padding: '3px 8px', opacity: canRedo ? 1 : 0.5 }}
+            style={{ fontSize: '0.75rem', padding: '4px 10px', opacity: canRedo ? 1 : 0.45, display: 'inline-flex', alignItems: 'center', gap: 4 }}
             title="Redo AI edit"
           >
-            <Redo2 size={12} /> Redo
+            <Redo2 size={13} /> Redo
           </button>
         </div>
       </div>
@@ -154,6 +182,14 @@ export const AiUxEditorPanel = ({
       {/* MODE 1: Quick Prompt Mode */}
       {editorMode === 'prompt' && (
         <>
+          {/* Status Feedback Notice */}
+          {statusMessage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: statusMessage.includes('applied') ? '#10B981' : '#F59E0B', backgroundColor: statusMessage.includes('applied') ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)', padding: '5px 12px', borderRadius: 4, border: `1px solid ${statusMessage.includes('applied') ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'}` }}>
+              {statusMessage.includes('applied') ? <CheckCircle2 size={13} /> : <RefreshCw size={13} className="spin" />}
+              <span>{statusMessage}</span>
+            </div>
+          )}
+
           {/* Suggested Quick Prompt Chips */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
@@ -163,10 +199,10 @@ export const AiUxEditorPanel = ({
               <button
                 key={idx}
                 type="button"
-                onClick={() => onApplyPromptEdit(qp, selectedScreen?.id)}
+                onClick={() => handleQuickDirective(qp)}
                 disabled={editing}
                 className="ux-chip"
-                style={{ fontSize: '0.725rem', padding: '3px 10px' }}
+                style={{ fontSize: '0.725rem', padding: '4px 11px', lineHeight: 1.2 }}
               >
                 + {qp}
               </button>
@@ -174,7 +210,7 @@ export const AiUxEditorPanel = ({
           </div>
 
           {/* Edit Prompt Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8 }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
               type="text"
               value={promptText}
@@ -187,10 +223,10 @@ export const AiUxEditorPanel = ({
               type="submit"
               disabled={editing || !promptText.trim()}
               className="btn btn-primary btn-sm"
-              style={{ fontWeight: 700, padding: '8px 18px' }}
+              style={{ fontWeight: 700, padding: '8px 18px', whiteSpace: 'nowrap', flexShrink: 0, minWidth: 120, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
-              {editing ? <RefreshCw size={14} className="spin" /> : <Send size={14} />}
-              {editing ? 'Regenerating Screen...' : 'Apply Change'}
+              {editing ? <RefreshCw size={13} className="spin" /> : <Send size={13} />}
+              {editing ? 'Applying...' : 'Apply Change'}
             </button>
           </form>
         </>

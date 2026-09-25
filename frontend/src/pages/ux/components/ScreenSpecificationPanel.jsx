@@ -52,25 +52,37 @@ export const ScreenSpecificationPanel = ({ screen, allScreens, onNavigateScreen 
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '12px 18px',
+          padding: '10px 16px',
           background: 'var(--bg-subtle)',
           border: 'none',
           cursor: 'pointer',
-          textAlign: 'left'
+          textAlign: 'left',
+          gap: 12,
+          flexWrap: 'wrap'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <FileCode size={16} color="var(--accent-amber)" />
-          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            AI UX Specification & Technical Contract: <span style={{ color: 'var(--accent-amber)' }}>{screen.name}</span>
-          </span>
-          <span className="badge badge-amber" style={{ fontSize: '0.65rem' }}>
-            {isExpanded ? 'Active Inspector' : 'Click to Inspect'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          <FileCode size={15} color="var(--accent-amber)" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            AI UX Specification: <span style={{ color: 'var(--accent-amber)' }}>{screen.name}</span>
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          <span>{isExpanded ? 'Hide Specification' : 'View AI UX Specification'}</span>
-          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        <div
+          className="badge badge-amber"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px',
+            fontSize: '0.725rem',
+            fontWeight: 700,
+            borderRadius: 6,
+            flexShrink: 0,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <span>{isExpanded ? 'Hide Specification' : 'Inspect Specification'}</span>
+          {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </div>
       </button>
 

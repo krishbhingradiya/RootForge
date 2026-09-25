@@ -39,6 +39,8 @@ export const AppLayout = () => {
     };
   }, []);
 
+  const isDiscoveryPage = location.pathname.includes('/discovery');
+
   return (
     <div className="app-container">
       {/* Mobile-first Navigation Suite */}
@@ -55,8 +57,8 @@ export const AppLayout = () => {
             <Outlet />
           </ErrorBoundary>
         </main>
-        {/* Loading canvas */}
-        <RobotLoadingOverlay isLoading={isLoading} message={loadingMessage} />
+        {/* Loading canvas — disabled for discovery page only */}
+        {!isDiscoveryPage && <RobotLoadingOverlay isLoading={isLoading} message={loadingMessage} />}
       </div>
 
       <AiChatErrorBoundary

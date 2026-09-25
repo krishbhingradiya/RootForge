@@ -19,7 +19,8 @@ import {
   ChevronUp,
   Clock,
   History,
-  Plus
+  Plus,
+  Loader2
 } from 'lucide-react';
 import { AssistantWelcomeCard } from '../../components/ai/AssistantWelcomeCard';
 import { isInitialWelcomeMessage, renderFormattedText } from '../../components/ai/chatTextFormatter';
@@ -270,32 +271,27 @@ export const DiscoveryPage = () => {
 
   if (loading && !workspace) {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 24, height: 'calc(100vh - 120px)' }}>
-        {/* Left Column Skeleton */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card" style={{ padding: 20 }}>
-            <div style={{ width: 120, height: 14, backgroundColor: 'var(--border-subtle)', borderRadius: 4, marginBottom: 12 }} />
-            <div style={{ width: '80%', height: 22, backgroundColor: 'var(--border-subtle)', borderRadius: 4, marginBottom: 10 }} />
-            <div style={{ width: '100%', height: 14, backgroundColor: 'var(--border-subtle)', borderRadius: 4, marginBottom: 6 }} />
-            <div style={{ width: '90%', height: 14, backgroundColor: 'var(--border-subtle)', borderRadius: 4 }} />
-          </div>
-          <div className="card" style={{ flex: 1, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ width: 140, height: 16, backgroundColor: 'var(--border-subtle)', borderRadius: 4, marginBottom: 8 }} />
-            {[1, 2, 3, 4].map(n => (
-              <div key={n} style={{ height: 62, backgroundColor: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border-subtle)' }} />
-            ))}
+      <div className="ai-thinking-scene">
+        <div className="ai-thinking-orb-container">
+          <div className="ai-thinking-halo" />
+          <div className="ai-thinking-ring-outer" />
+          <div className="ai-thinking-ring-inner" />
+          <div className="ai-thinking-core">
+            <Bot size={26} color="var(--accent-amber)" />
           </div>
         </div>
-        {/* Right Column Loading Card */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 40, gap: 16 }}>
-          <div style={{ width: 56, height: 56, borderRadius: '50%', backgroundColor: 'rgba(217, 119, 6, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Sparkles size={28} color="#D97706" />
+
+        <div className="ai-thinking-text-wrap">
+          <div className="ai-thinking-heading">
+            <span>{t('discovery.aiConsultant') || 'AI Business Consultant'} is thinking</span>
+            <span className="ai-thinking-wave-dots">
+              <span />
+              <span />
+              <span />
+            </span>
           </div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            {t('discovery.loadingTitle') || 'Opening Discovery Workspace...'}
-          </div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            {t('discovery.loadingSubtitle') || 'Assembling enterprise discovery context and intelligent AI consultant'}
+          <div className="ai-thinking-subtext">
+            {t('discovery.loadingSubtitle') || 'Analyzing project context & structuring discovery session'}
           </div>
         </div>
       </div>
@@ -634,7 +630,7 @@ export const DiscoveryPage = () => {
               stage="discovery"
               workspace={workspace}
               documentCount={workspace?.documentsCount}
-              onSelectPrompt={(prompt) => handleSendMessage(`Tell me about our ${prompt.toLowerCase()}`)}
+              onSelectPrompt={(prompt) => handleSendMessage(`Tell me about our ${(prompt || '').toLowerCase()}`)}
             />
           ) : (
             messages

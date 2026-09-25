@@ -362,7 +362,10 @@ router.get('/:id', authenticate, async (req, res) => {
       include: {
         organization: true,
         createdBy: { select: { id: true, name: true, email: true } },
-        documents: { orderBy: { createdAt: 'desc' } },
+        documents: {
+          select: { id: true, workspaceId: true, filename: true, originalName: true, fileType: true, fileSize: true, status: true, createdAt: true, updatedAt: true },
+          orderBy: { createdAt: 'desc' }
+        },
         businessAnalyses: { orderBy: { createdAt: 'desc' }, take: 1 },
         solutions: { orderBy: { createdAt: 'desc' }, take: 1 },
         architectures: { orderBy: { createdAt: 'desc' }, take: 1, include: { nodes: true, edges: true } },
@@ -374,7 +377,10 @@ router.get('/:id', authenticate, async (req, res) => {
         exportJobs: { orderBy: { createdAt: 'desc' } },
         approvals: { orderBy: { createdAt: 'desc' } },
         comments: { orderBy: { createdAt: 'desc' } },
-        versions: { orderBy: { createdAt: 'desc' } },
+        versions: {
+          select: { id: true, workspaceId: true, artifactType: true, versionNumber: true, notes: true, createdById: true, createdAt: true },
+          orderBy: { createdAt: 'desc' }
+        },
         activityLogs: { orderBy: { createdAt: 'desc' }, take: 10 },
         conversations: {
           include: { messages: { orderBy: { createdAt: 'asc' } } },
@@ -472,8 +478,13 @@ router.get('/:id/dashboard', authenticate, async (req, res) => {
         exportJobs: { orderBy: { createdAt: 'desc' } },
         approvals: { orderBy: { createdAt: 'desc' } },
         comments: { orderBy: { createdAt: 'desc' } },
-        versions: { orderBy: { createdAt: 'desc' } },
-        documents: true,
+        versions: {
+          select: { id: true, workspaceId: true, artifactType: true, versionNumber: true, notes: true, createdById: true, createdAt: true },
+          orderBy: { createdAt: 'desc' }
+        },
+        documents: {
+          select: { id: true, workspaceId: true, filename: true, originalName: true, fileType: true, fileSize: true, status: true, createdAt: true, updatedAt: true }
+        },
         conversations: {
           include: { messages: { orderBy: { createdAt: 'asc' } } },
           orderBy: { createdAt: 'desc' },

@@ -1178,4 +1178,20 @@ export function validateStageArtifact(stage, data) {
   }
 }
 
+/**
+ * Validates structured UX command patch output from Gemini / External AI.
+ * @param {any} data
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+export function validateUXPatch(data) {
+  const errors = [];
+  if (!data || typeof data !== 'object') {
+    return { valid: false, errors: ['UX patch output must be an object'] };
+  }
+  if (!data.operation && !data.operations && !data.changes && !data.theme && !data.layout) {
+    errors.push('UX patch must specify operation, operations, or changes');
+  }
+  return { valid: errors.length === 0, errors };
+}
+
 

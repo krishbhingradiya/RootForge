@@ -5,41 +5,39 @@
 
 .robot-loading-backdrop,
 .robot-loading-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
-  z-index: 50;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: 260px;
+  z-index: 999;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #FFFFFF;
+  background: #0E131F;
   cursor: wait;
   user-select: none;
   transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
 
-[data-theme='dark'] .robot-loading-backdrop,
-[data-theme='dark'] .robot-loading-overlay,
-.dark .robot-loading-backdrop,
-.dark .robot-loading-overlay {
-  background: #0E131F;
+[data-theme='light'] .robot-loading-backdrop,
+[data-theme='light'] .robot-loading-overlay,
+.light .robot-loading-backdrop,
+.light .robot-loading-overlay {
+  background: #FFFFFF;
 }
 
-/* Fallback if mounted at body/root level (e.g. auth check) */
-body > .robot-loading-backdrop,
-.app-container > .robot-loading-backdrop {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  left: 260px;
+@media (max-width: 900px) {
+  .robot-loading-backdrop,
+  .robot-loading-overlay {
+    left: 0;
+  }
 }
-body > .robot-loading-backdrop.no-sidebar,
-.app-container > .robot-loading-backdrop.no-sidebar {
+
+.robot-loading-backdrop.no-sidebar,
+.robot-loading-overlay.no-sidebar {
   left: 0;
 }
 

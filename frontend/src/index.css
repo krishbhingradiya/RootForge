@@ -3515,4 +3515,127 @@ html, body {
   }
 }
 
+/* ==========================================================================
+   AI CONSULTANT THINKING ANIMATION (DISCOVERY LOADING)
+   ========================================================================== */
+.ai-thinking-scene {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 160px);
+  gap: 20px;
+  user-select: none;
+}
+
+.ai-thinking-orb-container {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-thinking-halo {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(217, 119, 6, 0.3) 0%, rgba(245, 158, 11, 0.08) 55%, transparent 72%);
+  animation: aiHaloPulse 2.4s ease-in-out infinite alternate;
+}
+
+.ai-thinking-ring-outer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px dashed rgba(217, 119, 6, 0.4);
+  animation: spin 9s linear infinite;
+}
+
+.ai-thinking-ring-inner {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--accent-amber);
+  border-right-color: rgba(245, 158, 11, 0.7);
+  animation: spinReverse 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.ai-thinking-core {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.25), rgba(245, 158, 11, 0.08));
+  border: 1px solid rgba(217, 119, 6, 0.5);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 24px rgba(217, 119, 6, 0.28);
+  animation: aiCoreFloat 2.2s ease-in-out infinite alternate;
+}
+
+.ai-thinking-text-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.ai-thinking-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.ai-thinking-wave-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+}
+
+.ai-thinking-wave-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--accent-amber);
+  display: inline-block;
+  animation: aiDotPulse 1.2s infinite ease-in-out both;
+}
+
+.ai-thinking-wave-dots span:nth-child(1) { animation-delay: 0s; }
+.ai-thinking-wave-dots span:nth-child(2) { animation-delay: 0.2s; }
+.ai-thinking-wave-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+.ai-thinking-subtext {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  max-width: 320px;
+}
+
+@keyframes aiHaloPulse {
+  0% { transform: scale(0.92); opacity: 0.55; }
+  100% { transform: scale(1.16); opacity: 1; }
+}
+
+@keyframes aiCoreFloat {
+  0% { transform: translateY(0) scale(0.96); }
+  100% { transform: translateY(-3px) scale(1.04); }
+}
+
+@keyframes spinReverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+
 

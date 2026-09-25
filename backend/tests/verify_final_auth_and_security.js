@@ -137,30 +137,39 @@ async function runTestSuite() {
     assert(loginVerifyRes.status === 200 && Boolean(loginVerifyData.token), `Login OTP verification grants authenticated JWT session`);
   }
 
-  // TEST 3: Admin Account Configuration & Verification
-  console.log('\n--- TEST 3: Admin Account Security & Role Enforcement ---');
-  const adminTestEmail = `admin.test.${Date.now()}@rootforge.ai`;
+  // TEST 3: Admin Account Security & Role Enforcement
+  console.log('\n--- TEST 3: Admin Account Security & Single-Admin (mgpro9090@gmail.com) Enforcement ---');
+  const adminTestEmail = 'mgpro9090@gmail.com';
+  const nonAdminEmail = `nonadmin.attempt.${Date.now()}@rootforge.ai`;
   {
-    // Register admin test account
-    const adminRegRes = await fetch(`${BASE_URL}/auth/register`, {
+    // Non-admin attempting to register as ADMIN must be demoted to CONSULTANT
+    const nonAdminRegRes = await fetch(`${BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: nonAdminEmail,
+        password: 'NonAdminPassword@2026',
+        name: 'Imposter Admin',
+        role: 'ADMIN'
+      })
+    });
+    const nonAdminUser = await prisma.user.findUnique({ where: { email: nonAdminEmail } });
+    assert(nonAdminUser && nonAdminUser.role === 'CONSULTANT', `Non-admin email attempting to register as ADMIN is forced to CONSULTANT role`);
+
+    // Verify mgpro9090@gmail.com is designated ADMIN
+    const adminUser = await prisma.user.findUnique({ where: { email: adminTestEmail } });
+    assert(adminUser && adminUser.role === 'ADMIN', `Primary admin ${adminTestEmail} is properly configured with ADMIN role`);
+
+    // Attempt login for mgpro9090@gmail.com
+    await fetch(`${BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: adminTestEmail,
-        password: 'AdminSuperSecret@2026',
-        name: 'Master Admin',
-        organizationName: 'RootForge Operations',
-        role: 'ADMIN'
+        password: process.env.ADMIN_PASSWORD || 'Anmol@5634'
       })
     });
-    const adminRegData = await adminRegRes.json();
-    assert(adminRegData.requiresVerification === true, `Admin account requires email verification`);
 
-    const adminUser = await prisma.user.findUnique({ where: { email: adminTestEmail } });
-    assert(adminUser.role === 'ADMIN', `Admin email assigned ADMIN role`);
-    assert(adminUser.emailVerified === false, `Admin account starts unverified`);
-
-    // Find admin OTP
     const adminOtpRecord = await prisma.emailVerificationOTP.findFirst({
       where: { email: adminTestEmail, verifiedAt: null },
       orderBy: { createdAt: 'desc' }
@@ -182,13 +191,13 @@ async function runTestSuite() {
       body: JSON.stringify({ email: adminTestEmail, otp: adminOtp })
     });
     const adminVerifyData = await adminVerifyRes.json();
-    assert(adminVerifyRes.status === 200 && adminVerifyData.user.role === 'ADMIN', `Admin verified with ADMIN role in token`);
+    assert(adminVerifyRes.status === 200 && adminVerifyData.user.role === 'ADMIN', `Admin mgpro9090@gmail.com verified with ADMIN role in token`);
 
     // Verify Admin can access protected Admin Console API
     const adminAccessRes = await fetch(`${BASE_URL}/admin/metrics`, {
       headers: { Authorization: `Bearer ${adminVerifyData.token}` }
     });
-    assert(adminAccessRes.status === 200, `Admin successfully accesses /api/admin/metrics (HTTP 200)`);
+    assert(adminAccessRes.status === 200, `Admin mgpro9090@gmail.com successfully accesses /api/admin/metrics (HTTP 200)`);
   }
 
   // TEST 4: Forgot Password & Reset Password Flow

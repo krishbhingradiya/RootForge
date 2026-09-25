@@ -20,6 +20,17 @@ router.get('/:id/documents', authenticate, async (req, res) => {
 
     const documents = await prisma.document.findMany({
       where: { workspaceId: req.params.id },
+      select: {
+        id: true,
+        workspaceId: true,
+        filename: true,
+        originalName: true,
+        fileType: true,
+        fileSize: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true
+      },
       orderBy: { createdAt: 'desc' }
     });
     res.json({ documents });

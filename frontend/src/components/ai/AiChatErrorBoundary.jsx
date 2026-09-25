@@ -23,7 +23,12 @@ export class AiChatErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('[AiChatErrorBoundary] Caught error in AI Chatbot:', error, errorInfo);
+    console.error('[AiChatErrorBoundary] Caught error in AI Copilot:', {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+      componentStack: errorInfo?.componentStack
+    });
   }
 
   componentDidUpdate(prevProps) {

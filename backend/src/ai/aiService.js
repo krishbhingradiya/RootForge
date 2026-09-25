@@ -706,6 +706,38 @@ export class AiService {
     };
   }
 
+  async interpretUXCommand(context, currentSpec, command, domain = 'GENERAL_ENTERPRISE') {
+    const startTime = Date.now();
+    const fallbackOnError = (process.env.AI_FALLBACK_ON_ERROR || 'true') !== 'false';
+    const isEligibleForExternal = this.isExternalUXEnabled();
+
+    if (isEligibleForExternal && process.env.AI_API_KEY) {
+      try {
+        const response = await externalProvider.interpretUXCommand(context, currentSpec, command, domain);
+        return {
+          patch: response.result,
+          summary: response.result?.summary || 'Applied AI UI patch',
+          _meta: response._meta
+        };
+      } catch (err) {
+        if (!fallbackOnError) throw err;
+        console.warn(`[aiService] External UX interpretation failed (${err.code || 'ERR'}), using demoProvider fallback: ${err.message}`);
+      }
+    }
+
+    const demoPatch = await demoProvider.interpretUXCommand(context, currentSpec, command, domain);
+    return {
+      patch: demoPatch,
+      summary: demoPatch.summary || 'Applied UI patch',
+      _meta: {
+        provider: 'DEMO',
+        model: 'deterministic',
+        latencyMs: Date.now() - startTime,
+        tokensUsed: 0
+      }
+    };
+  }
+
   // =========================================================================
   // STAGE 7: DATABASE DESIGN (Real AI eligible in Phase 3D)
   // =========================================================================
