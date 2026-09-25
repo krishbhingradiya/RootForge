@@ -38,9 +38,9 @@ export class VoiceWebhookService {
         status: 'connected',
         connectedAt: new Date()
       });
-      console.log(`[VoiceWebhook] User answered call! Session: ${session.id}, CallSid: ${callSid?.slice(0, 8) || 'N/A'}... -> status: 'connected'`);
+      console.log(`[VoiceWebhook] Answer webhook received for Call SID: ${callSid || 'N/A'} (Session: ${session.id}) -> status: 'connected'`);
     } else {
-      console.log(`[VoiceWebhook] Webhook invoked for CallSid: ${callSid?.slice(0, 8) || 'N/A'}... (No session matched)`);
+      console.log(`[VoiceWebhook] Answer webhook received for Call SID: ${callSid || 'N/A'} (No session matched)`);
     }
 
     // Determine WebSocket host URL

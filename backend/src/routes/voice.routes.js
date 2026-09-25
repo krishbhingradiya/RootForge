@@ -185,6 +185,8 @@ const handleIncomingWebhook = async (req, res) => {
 
 router.post('/incoming', validateTwilioSignature, handleIncomingWebhook);
 router.post('/answer', validateTwilioSignature, handleIncomingWebhook);
+router.get('/incoming', handleIncomingWebhook);
+router.get('/answer', handleIncomingWebhook);
 
 /**
  * POST /api/voice/status

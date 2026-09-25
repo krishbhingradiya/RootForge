@@ -227,7 +227,7 @@ export class TwilioVoiceService {
       phoneNumber: destinationPhone
     });
 
-    console.log(`[TwilioVoiceService] Initiating outbound AI call to: ${maskPhoneNumber(destinationPhone)} (Session: ${session.id})`);
+    console.log(`[TwilioVoiceService] Creating outbound call to: ${maskPhoneNumber(destinationPhone)} (Session: ${session.id})`);
 
     if (!this.isConfigured()) {
       const errorMsg = 'Twilio voice service is not configured. Please set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in the backend environment.';
@@ -243,7 +243,7 @@ export class TwilioVoiceService {
       throw err;
     }
 
-    const webhookUrl = `${this.webhookBaseUrl}/api/voice/incoming?sessionId=${encodeURIComponent(session.id)}`;
+    const webhookUrl = `${this.webhookBaseUrl}/api/voice/answer?sessionId=${encodeURIComponent(session.id)}`;
     const statusCallbackUrl = `${this.webhookBaseUrl}/api/voice/status?sessionId=${encodeURIComponent(session.id)}`;
 
     try {
@@ -252,19 +252,6 @@ export class TwilioVoiceService {
         startedAt: new Date()
       });
 
-      /**
-       * TWILIO TRIAL-SAFE CALL PARAMETERS:
-       * Only pass universally supported parameters:
-       * - to: E.164 destination number
-       * - from: Twilio registered number
-       * - url: Webhook URL returning TwiML
-       * - method: POST
-       * - statusCallback: Status callback URL
-       * - statusCallbackMethod: POST
-       * 
-       * DO NOT pass `record: false`, `timeout`, or `statusCallbackEvent` array
-       * as these trigger trial account parameter restrictions.
-       */
       const callParams = {
         to: destinationPhone,
         from: this.fromNumber,
@@ -278,7 +265,7 @@ export class TwilioVoiceService {
 
       const call = await this.client.calls.create(callParams);
 
-      console.log(`[TwilioVoiceService] Twilio Call created successfully. Call SID: ${call.sid.slice(0, 8)}... (Status: ${call.status})`);
+      console.log(`[TwilioVoiceService] Twilio Call SID: ${call.sid} (Status: ${call.status})`);
 
       const updatedSession = await this.updateSession(session.id, {
         twilioCallSid: call.sid,
