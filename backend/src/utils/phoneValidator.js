@@ -6,7 +6,7 @@
  * Rejects invalid, truncated, or dummy numbers.
  */
 
-export function normalizePhoneNumber(rawPhone) {
+export function normalizePhoneNumber(rawPhone, defaultCountryCode = '+91') {
   if (!rawPhone || typeof rawPhone !== 'string') {
     return null;
   }
@@ -19,23 +19,24 @@ export function normalizePhoneNumber(rawPhone) {
     clean = '+' + clean.slice(2);
   }
 
-  // If number starts with 10 digits without + and user looks Indian (starts with 6, 7, 8, 9), default to +91
-  if (/^[6-9]\d{9}$/.test(clean.replace(/[\s\-\(\)\.]/g, ''))) {
-    clean = '+91' + clean.replace(/[\s\-\(\)\.]/g, '');
+  // Remove whitespace, dashes, parentheses, dots
+  const stripped = clean.replace(/[\s\-\(\)\.]/g, '');
+
+  if (stripped.startsWith('+')) {
+    clean = stripped;
+  } else {
+    // If standard 10-digit number without country code
+    const prefix = defaultCountryCode.startsWith('+') ? defaultCountryCode : `+${defaultCountryCode}`;
+    clean = `${prefix}${stripped}`;
   }
 
-  // Remove all non-digit and non-plus characters
-  clean = clean.replace(/[^\d+]/g, '');
-
-  // Ensure leading plus
-  if (!clean.startsWith('+')) {
-    clean = '+' + clean;
-  }
+  // Remove all characters except digits and the leading plus
+  clean = '+' + clean.replace(/[^\d]/g, '');
 
   return clean;
 }
 
-export function validatePhoneNumber(rawPhone) {
+export function validatePhoneNumber(rawPhone, defaultCountryCode = '+91') {
   if (!rawPhone || typeof rawPhone !== 'string' || !rawPhone.trim()) {
     return {
       isValid: false,
@@ -44,7 +45,7 @@ export function validatePhoneNumber(rawPhone) {
     };
   }
 
-  const normalized = normalizePhoneNumber(rawPhone);
+  const normalized = normalizePhoneNumber(rawPhone, defaultCountryCode);
 
   if (!normalized) {
     return {
@@ -65,15 +66,31 @@ export function validatePhoneNumber(rawPhone) {
     };
   }
 
-  // Detect obvious dummy / sequence repetitions (e.g. +910000000000, +11111111111)
   const digitsOnly = normalized.slice(1);
-  const uniqueDigits = new Set(digitsOnly.slice(2)); // check subscriber part
+
+  // Detect repeated digits (e.g. +910000000000, +11111111111)
+  const uniqueDigits = new Set(digitsOnly.slice(2));
   if (uniqueDigits.size <= 1 && digitsOnly.length >= 8) {
     return {
       isValid: false,
       normalized: null,
       error: 'Please provide an active, valid mobile phone number.'
     };
+  }
+
+  // Detect obvious sequential numbers (e.g. 1234567890, 0123456789)
+  if (
+    digitsOnly.includes('1234567890') ||
+    digitsOnly.includes('0123456789') ||
+    digitsOnly.includes('9876543210') && digitsOnly.length === 10
+  ) {
+    if (digitsOnly === '1234567890' || digitsOnly === '0123456789' || digitsOnly === '911234567890') {
+      return {
+        isValid: false,
+        normalized: null,
+        error: 'Please provide an active, valid mobile phone number.'
+      };
+    }
   }
 
   return {

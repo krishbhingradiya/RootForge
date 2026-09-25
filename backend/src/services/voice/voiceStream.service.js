@@ -4,8 +4,8 @@
  * Handles:
  * 1. Twilio Bi-directional Media Stream events (connected, start, media, stop, mark).
  * 2. Real-time audio ingestion without buffering entire calls in memory.
- * 3. Session lifecycle tracking and automatic teardown.
- * 4. Architecture preparation for Sarvam Realtime STT integration.
+ * 3. Session lifecycle tracking and automatic teardown in PostgreSQL.
+ * 4. Architecture integration hooks for Sarvam STT, Groq LLM, and Voice TTS.
  */
 
 import { twilioVoiceService } from './twilioVoice.service.js';
@@ -44,9 +44,9 @@ export class VoiceStreamService {
             const customParams = data.start?.customParameters || data.customParameters || {};
             currentSessionId = customParams.sessionId || customParams.session_id || null;
 
-            console.log(`[VoiceStream] Stream started. Stream SID: ${currentStreamSid}, Call SID: ${currentCallSid}, Session ID: ${currentSessionId}`);
+            console.log(`[VoiceStream] Stream started. Stream SID: ${currentStreamSid}, Call SID: ${currentCallSid?.slice(0, 8) || 'N/A'}..., Session ID: ${currentSessionId || 'N/A'}`);
 
-            // Find and link voice session
+            // Find and link voice session in DB
             let session = null;
             if (currentSessionId) {
               session = await twilioVoiceService.getSession(currentSessionId);
@@ -62,6 +62,7 @@ export class VoiceStreamService {
                 twilioCallSid: currentCallSid || session.twilioCallSid,
                 status: 'active'
               });
+              console.log(`[VoiceSession] Session ${session.id} linked to Stream SID ${currentStreamSid}`);
             }
 
             // Register active stream context
@@ -72,7 +73,6 @@ export class VoiceStreamService {
               streamSid: currentStreamSid,
               startedAt: Date.now(),
               audioChunkCount: 0,
-              // Sarvam Realtime STT pipeline hook
               sarvamClient: null
             });
 
@@ -150,6 +150,7 @@ export class VoiceStreamService {
         status: 'completed',
         endedAt: new Date()
       });
+      console.log(`[VoiceSession] Session ${sessionId} marked as completed.`);
     }
   }
 
@@ -163,16 +164,17 @@ export class VoiceStreamService {
     }
 
     try {
-      context.ws.send(JSON.stringify({
+      const mediaMessage = JSON.stringify({
         event: 'media',
         streamSid,
         media: {
           payload: base64MulawAudio
         }
-      }));
+      });
+      context.ws.send(mediaMessage);
       return true;
     } catch (err) {
-      console.error(`[VoiceStream] Error sending audio to stream ${streamSid}:`, err.message);
+      console.error(`[VoiceStream] Failed to send audio to stream ${streamSid}:`, err.message);
       return false;
     }
   }

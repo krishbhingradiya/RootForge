@@ -151,10 +151,11 @@ async function executeRequest(endpoint, options = {}) {
           code: data.code
         });
       }
-      const err = new Error(data.error || `HTTP Error ${response.status}`);
+      const errMessage = data.message || data.error || `HTTP Error ${response.status}`;
+      const err = new Error(errMessage);
       err.status = response.status;
       err.details = data.details;
-      err.code = data.code;
+      err.code = data.code || data.errorCode;
       err.data = data;
       throw err;
     }

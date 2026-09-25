@@ -129,16 +129,17 @@ export const OutboundVoiceCallModal = ({
       if (res && res.success) {
         setActiveSessionId(res.sessionId);
         setCallState('calling');
-        setStatusMessage('Calling your phone... Your phone should ring shortly.');
+        setStatusMessage('Calling your phone... Please answer when it rings.');
       } else {
         setCallState('error');
-        setErrorMessage(res?.error || 'Unable to start the AI voice call.');
+        setErrorMessage(res?.message || res?.error || 'Unable to start the AI voice call.');
         setStatusMessage('Call Failed');
       }
     } catch (err) {
       console.error('[OutboundVoiceCall] Failed to start call:', err);
       setCallState('error');
-      setErrorMessage(err?.message || 'Unable to connect to the voice gateway. Please verify your phone number and try again.');
+      const userMessage = err?.data?.message || err?.message || 'Unable to connect to the voice gateway. Please verify your phone number and try again.';
+      setErrorMessage(userMessage);
       setStatusMessage('Call Failed');
     }
   };

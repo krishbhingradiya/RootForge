@@ -20,6 +20,7 @@ build/
 backend/prisma/*.db
 backend/prisma/*.db-journal
 *.sql
+!backend/prisma/migrations/**/*.sql
 *.load
 backend/csv_exports/
 *.zip

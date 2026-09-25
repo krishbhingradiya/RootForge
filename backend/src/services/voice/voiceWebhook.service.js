@@ -2,10 +2,10 @@
  * Enterprise Voice Webhook & TwiML Generator
  * 
  * Handles:
- * 1. Twilio Voice Webhook (POST /api/voice/incoming).
- * 2. Generating valid TwiML with initial AI greeting and bi-directional Media Stream.
+ * 1. Twilio Voice Webhooks (POST /api/voice/incoming and POST /api/voice/answer).
+ * 2. Generating valid, robust TwiML with neural greeting and Media Stream connection.
  * 3. Processing Twilio Call Status Callbacks (ringing, in-progress, completed, failed, busy).
- * 4. Associating CallSid and Stream metadata with the user's voice session.
+ * 4. Associating CallSid and Stream metadata with the user's PostgreSQL voice session.
  */
 
 import twilio from 'twilio';
@@ -38,11 +38,13 @@ export class VoiceWebhookService {
         status: 'connected',
         connectedAt: new Date()
       });
-      console.log(`[VoiceWebhook] Call answered by user! Session ${session.id} status -> 'connected'`);
+      console.log(`[VoiceWebhook] User answered call! Session: ${session.id}, CallSid: ${callSid?.slice(0, 8) || 'N/A'}... -> status: 'connected'`);
+    } else {
+      console.log(`[VoiceWebhook] Webhook invoked for CallSid: ${callSid?.slice(0, 8) || 'N/A'}... (No session matched)`);
     }
 
     // Determine WebSocket host URL
-    const envBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || '';
+    const envBaseUrl = process.env.PUBLIC_BASE_URL || process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || '';
     let wsHost = host || 'rootforge.onrender.com';
 
     if (envBaseUrl) {
@@ -52,16 +54,16 @@ export class VoiceWebhookService {
       } catch {}
     }
 
-    // Use wss for secure production and ws for local development
-    const wsProtocol = (wsHost.includes('localhost') || wsHost.includes('127.0.0.1')) ? 'ws' : 'wss';
+    // Use wss for production/Render and ws for local development
+    const isLocal = wsHost.includes('localhost') || wsHost.includes('127.0.0.1');
+    const wsProtocol = isLocal ? 'ws' : 'wss';
     const streamUrl = `${wsProtocol}://${wsHost}/api/voice/stream`;
 
-    console.log(`[VoiceWebhook] Generated Media Stream URL: ${streamUrl}`);
+    console.log(`[VoiceWebhook] Connecting call to real-time WebSocket Media Stream: ${streamUrl}`);
 
-    // Phase 1 Audio Greeting
+    // Initial greeting in natural Indian English (Polly.Aditi)
     const greetingText = 'Hello, welcome to RootForge AI Business Consultant. Please tell me about the business idea or problem you want to solve.';
 
-    // Speak initial greeting via natural Indian/Global English neural voice
     response.say(
       {
         voice: 'Polly.Aditi',
@@ -77,7 +79,7 @@ export class VoiceWebhookService {
       name: 'rootforge-ai-voice-stream'
     });
 
-    // Pass custom metadata parameters to the WebSocket start event
+    // Pass session metadata to WebSocket stream start event
     if (session) {
       stream.parameter({
         name: 'sessionId',
@@ -92,7 +94,7 @@ export class VoiceWebhookService {
    * Handles Twilio Status Callback events (ringing, in-progress, completed, failed, busy, no-answer)
    */
   async handleStatusCallback({ callSid, callStatus, duration = 0, error = null, sessionId = null }) {
-    console.log(`[VoiceWebhook] Twilio status callback received: Call ${callSid?.slice(0, 8)}... -> status: ${callStatus}`);
+    console.log(`[VoiceWebhook] Twilio status callback: Call ${callSid?.slice(0, 8)}... -> status: ${callStatus} (Duration: ${duration}s)`);
 
     let session = null;
     if (sessionId) {
@@ -154,6 +156,7 @@ export class VoiceWebhookService {
 
     updates.status = mappedStatus;
     await twilioVoiceService.updateSession(session.id, updates);
+    console.log(`[VoiceSession] Updated status callback in PostgreSQL: ${session.id} -> ${mappedStatus}`);
   }
 }
 
