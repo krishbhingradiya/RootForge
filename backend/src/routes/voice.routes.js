@@ -19,6 +19,7 @@ import express from 'express';
 import twilio from 'twilio';
 import { twilioVoiceService } from '../services/voice/twilioVoice.service.js';
 import { voiceWebhookService } from '../services/voice/voiceWebhook.service.js';
+import { aiVoiceConsultantService } from '../services/voice/aiVoiceConsultant.service.js';
 import { maskPhoneNumber } from '../utils/phoneValidator.js';
 import jwt from 'jsonwebtoken';
 
@@ -331,13 +332,30 @@ router.get('/session/:id/requirements', optionalAuth, async (req, res) => {
     const state = voiceWebhookService.getSessionDetails(session.id) ||
       (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
 
+    // If generatedDoc is not yet created, generate it on-the-fly
+    let generatedDoc = state?.generatedDoc || null;
+    if (!generatedDoc && state?.conversation && state.conversation.length > 0) {
+      try {
+        generatedDoc = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+          session,
+          conversation: state.conversation,
+          requirements: state.requirements || {}
+        });
+        if (state) state.generatedDoc = generatedDoc;
+      } catch (err) {
+        console.warn('[VoiceRoutes] On-demand markdown generation warning:', err.message);
+      }
+    }
+
     res.json({
       success: true,
       sessionId: session.id,
       status: session.status,
       conversation: state?.conversation || [],
       requirements: state?.requirements || {},
-      generatedDoc: state?.generatedDoc || null,
+      generatedDoc: generatedDoc || null,
+      markdownContent: generatedDoc?.markdownContent || '',
+      fileName: generatedDoc?.fileName || `project-requirements-${session.id}.md`,
       detectedLanguage: state?.lastDetectedLanguage || 'en-IN'
     });
   } catch (err) {
@@ -358,29 +376,41 @@ router.get('/session/:id/markdown', optionalAuth, async (req, res) => {
     const session = await twilioVoiceService.getSession(req.params.id);
 
     if (!session) {
-      return res.status(404).send('Session not found.');
+      return res.status(404).send('# Session Not Found\nThe requested voice session does not exist.');
     }
 
     const state = voiceWebhookService.getSessionDetails(session.id) ||
       (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
 
-    const markdown = state?.generatedDoc?.markdownContent;
+    let markdown = state?.generatedDoc?.markdownContent;
+    let fileName = state?.generatedDoc?.fileName;
+
+    // If not generated, synthesize immediately
     if (!markdown) {
-      return res.status(404).send('Markdown requirement document not yet generated.');
+      try {
+        const docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+          session,
+          conversation: state?.conversation || [],
+          requirements: state?.requirements || {}
+        });
+        if (state) state.generatedDoc = docResult;
+        markdown = docResult.markdownContent;
+        fileName = docResult.fileName;
+      } catch (err) {
+        markdown = `# Project Requirements Document\n\n## 1. Project Overview\nVoice discovery session: ${session.id}\n\n## 2. Business Problem\nDiscovered via RootForge AI Consultant.`;
+        fileName = `project-requirements-${session.id}.md`;
+      }
     }
 
-    const download = req.query.download === 'true';
-    if (download) {
-      const fileName = state?.generatedDoc?.fileName || 'project-requirements.md';
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    }
-
-    res.type('text/markdown');
+    const finalFileName = fileName || `project-requirements-${session.id}.md`;
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${finalFileName}"`);
     res.send(markdown);
   } catch (err) {
-    res.status(500).send('Failed to retrieve markdown document.');
+    res.status(500).send('# Error\nFailed to generate or retrieve markdown document.');
   }
 });
+
 
 /**
  * POST /api/voice/session/:id/cancel

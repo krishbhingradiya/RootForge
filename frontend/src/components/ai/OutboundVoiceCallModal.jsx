@@ -205,16 +205,62 @@ export const OutboundVoiceCallModal = ({
     setShowTranscript(false);
   };
 
-  const handleDownloadMarkdown = () => {
-    if (!activeSessionId) return;
-    const downloadUrl = api.getVoiceSessionMarkdownUrl(activeSessionId);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.setAttribute('download', `project-requirements-${activeSessionId}.md`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadMarkdown = async () => {
+    setDownloading(true);
+    try {
+      // 1. If markdown content is already available in memory, download instantly via Blob
+      const inlineMarkdown = discoveryData?.markdownContent || discoveryData?.generatedDoc?.markdownContent;
+      const targetFilename = discoveryData?.fileName || discoveryData?.generatedDoc?.fileName || `project-requirements-${activeSessionId || 'session'}.md`;
+
+      if (inlineMarkdown && inlineMarkdown.trim()) {
+        const blob = new Blob([inlineMarkdown], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = targetFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+
+      // 2. Otherwise request requirements and generate document on the fly
+      if (activeSessionId) {
+        const reqData = await api.getVoiceSessionRequirements(activeSessionId);
+        const fetchedMd = reqData?.markdownContent || reqData?.generatedDoc?.markdownContent;
+        const fetchedName = reqData?.fileName || reqData?.generatedDoc?.fileName || `project-requirements-${activeSessionId}.md`;
+
+        if (fetchedMd && fetchedMd.trim()) {
+          setDiscoveryData(reqData);
+          const blob = new Blob([fetchedMd], { type: 'text/markdown;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fetchedName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          return;
+        }
+
+        // 3. Direct URL fallback
+        const downloadUrl = api.getVoiceSessionMarkdownUrl(activeSessionId);
+        window.open(downloadUrl, '_blank');
+      }
+    } catch (err) {
+      console.warn('[VoiceModal] Download error:', err);
+      if (activeSessionId) {
+        window.open(api.getVoiceSessionMarkdownUrl(activeSessionId), '_blank');
+      }
+    } finally {
+      setDownloading(false);
+    }
   };
+
 
   return (
     <div
@@ -544,6 +590,7 @@ export const OutboundVoiceCallModal = ({
                 <button
                   type="button"
                   onClick={handleDownloadMarkdown}
+                  disabled={downloading}
                   className="btn btn-secondary"
                   style={{
                     padding: '9px 16px',
@@ -553,9 +600,19 @@ export const OutboundVoiceCallModal = ({
                     gap: 6
                   }}
                 >
-                  <Download size={15} />
-                  <span>Download .md</span>
+                  {downloading ? (
+                    <>
+                      <Loader2 size={15} className="spin" />
+                      <span>Generating .md...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={15} />
+                      <span>Download .md</span>
+                    </>
+                  )}
                 </button>
+
 
                 <button
                   type="button"
