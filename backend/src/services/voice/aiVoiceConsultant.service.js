@@ -293,13 +293,89 @@ Return strictly a JSON object with this EXACT structure:
   }
 
   /**
-   * Generates complete 28-section Project Requirements Markdown Document
+   * Builds formatted Verbatim Conversation Transcript Markdown section
+   */
+  buildConversationTranscriptMarkdown({ session, conversation = [], detectedLanguage = 'en-IN' }) {
+    if (!conversation || conversation.length === 0) {
+      return `## 💬 Voice Discovery Call Conversation Transcript\n\n*No conversation turns were recorded for this voice session.*`;
+    }
+
+    const startTime = session?.startedAt || session?.createdAt || new Date();
+    const dateFormatted = new Date(startTime).toLocaleString('en-US', {
+      timeZone: 'Asia/Kolkata',
+      dateStyle: 'full',
+      timeStyle: 'medium'
+    });
+
+    let md = `## 💬 Complete Call Conversation Transcript (Verbatim Dialogue)\n\n`;
+    md += `> **Discovery Call Session Telemetry:**\n`;
+    md += `> - **Session ID:** \`${session?.id || 'N/A'}\`\n`;
+    md += `> - **Call Date & Time:** ${dateFormatted} (IST)\n`;
+    md += `> - **Primary Detected Language:** \`${detectedLanguage}\`\n`;
+    md += `> - **Total Dialogue Turns:** ${conversation.length}\n`;
+    md += `> - **Channel:** Twilio Outbound Voice AI Gateway\n\n`;
+
+    md += `### 📊 Dialogue Turn Summary Table\n\n`;
+    md += `| Turn | Timestamp | Speaker | Native Spoken Speech | English Interpretation / Meaning |\n`;
+    md += `|:---:|:---|:---|:---|:---|\n`;
+
+    conversation.forEach((turn, idx) => {
+      const turnNum = idx + 1;
+      const roleLabel = turn.role === 'assistant' ? '🤖 RootForge AI Consultant' : '👤 Client / User';
+      const timeStr = turn.timestamp
+        ? new Date(turn.timestamp).toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata' })
+        : `+${idx * 12}s`;
+      const originalText = (turn.text || '').replace(/\n+/g, ' ').replace(/\|/g, '\\|').trim();
+      const englishText = (turn.englishText || turn.text || '').replace(/\n+/g, ' ').replace(/\|/g, '\\|').trim();
+      md += `| **${turnNum}** | ${timeStr} | **${roleLabel}** | ${originalText} | ${englishText} |\n`;
+    });
+
+    md += `\n### 🎙️ Detailed Verbatim Turn-by-Turn Dialogue Log\n\n`;
+
+    conversation.forEach((turn, idx) => {
+      const turnNum = idx + 1;
+      const isAI = turn.role === 'assistant';
+      const speakerBadge = isAI ? '🤖 RootForge AI Consultant' : '👤 Client / User';
+      const timeStr = turn.timestamp
+        ? new Date(turn.timestamp).toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata' })
+        : `+${idx * 12}s`;
+
+      md += `#### Turn ${turnNum} — ${speakerBadge}\n`;
+      md += `*Timestamp: ${timeStr}*\n\n`;
+
+      if (isAI) {
+        md += `> **Consultant Spoken Audio:**\n`;
+        md += `> "${turn.text || turn.englishText || ''}"\n\n`;
+      } else {
+        md += `> **User Spoken Transcript (Native):**\n`;
+        md += `> "${turn.text || ''}"\n>\n`;
+        if (turn.englishText && turn.englishText !== turn.text) {
+          md += `> **Normalized English Translation:**\n`;
+          md += `> "${turn.englishText}"\n>\n`;
+        }
+        if (turn.language) {
+          md += `> *Language Detected: \`${turn.language}\`*\n\n`;
+        } else {
+          md += `\n`;
+        }
+      }
+    });
+
+    return md;
+  }
+
+  /**
+   * Generates complete Project Requirements Markdown Document containing:
+   * 1. Discovery Call Telemetry & Metadata
+   * 2. Complete Verbatim Conversation Transcript
+   * 3. 28-Section Architecture Blueprint & Requirements Specification
    */
   async generateProjectRequirementsDocument({ session, conversation = [], requirements = {} }) {
     console.log('[VoiceAgent] Markdown generation started');
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.AI_API_KEY;
 
+    const detectedLang = conversation.find(c => c.language)?.language || 'en-IN';
     const transcriptText = conversation.map(c => `[${c.role.toUpperCase()} - ${c.timestamp || ''}]: ${c.englishText || c.text}`).join('\n');
 
     const prompt = `You are the Principal Solutions Architect at RootForge.
@@ -311,8 +387,6 @@ RULES:
 - Use clean GitHub-flavored Markdown with tables and bullet points.
 
 MUST CONTAIN ALL 28 SECTIONS IN THIS EXACT ORDER:
-# Project Requirements: ${requirements.business_objective || 'AI Solution Specification'}
-
 ## 1. Project Overview
 ## 2. Business Problem
 ## 3. Business Objectives & Success Metrics
@@ -348,9 +422,9 @@ ${transcriptText}
 STRUCTURED DATA:
 ${JSON.stringify(requirements, null, 2)}`;
 
-    let markdownContent = '';
+    let synthesizedSections = '';
 
-    // 1. Try Groq
+    // 1. Try Groq (Llama 3.3 70B)
     if (groqKey) {
       try {
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -369,7 +443,7 @@ ${JSON.stringify(requirements, null, 2)}`;
 
         if (res.ok) {
           const data = await res.json();
-          markdownContent = data.choices?.[0]?.message?.content?.trim() || '';
+          synthesizedSections = data.choices?.[0]?.message?.content?.trim() || '';
         }
       } catch (err) {
         console.warn('[AiVoiceConsultant] Groq doc generation fallback:', err.message);
@@ -377,7 +451,7 @@ ${JSON.stringify(requirements, null, 2)}`;
     }
 
     // 2. Try Gemini Fallback
-    if (!markdownContent && geminiKey) {
+    if (!synthesizedSections && geminiKey) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
         const res = await fetch(endpoint, {
@@ -394,43 +468,137 @@ ${JSON.stringify(requirements, null, 2)}`;
 
         if (res.ok) {
           const data = await res.json();
-          markdownContent = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          synthesizedSections = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         }
       } catch (err) {
         console.warn('[AiVoiceConsultant] Gemini doc generation fallback:', err.message);
       }
     }
 
-    if (!markdownContent) {
-      markdownContent = `# Project Requirements Document\n\n## 1. Project Overview\nBased on discovery call session ${session?.id || ''}.\n\n## 2. Business Problem\n${requirements.business_problem || 'Not specified'}\n\n## 3. Core Features\n${Array.isArray(requirements.features) ? requirements.features.join('\n- ') : 'Core features under specification.'}`;
+    if (!synthesizedSections) {
+      synthesizedSections = `## 1. Project Overview\nBased on discovery call session ${session?.id || ''}.\n\n## 2. Business Problem\n${requirements.business_problem || 'Discovered during voice call consultation.'}\n\n## 3. Core Features\n${Array.isArray(requirements.features) ? requirements.features.map(f => `- ${f}`).join('\n') : '- Core functionality specified during voice discovery.'}\n\n## 4. Technical Constraints\n${Array.isArray(requirements.technical_constraints) ? requirements.technical_constraints.map(c => `- ${c}`).join('\n') : '- Standard cloud architecture.'}`;
     }
 
-    // Save Markdown file to uploads directory
-    const workspaceId = session?.workspaceId || 'default-workspace';
-    const fileName = `${workspaceId}-${session?.id || Date.now()}-project-requirements.md`;
+    // 3. Build Transcript Markdown Section
+    const transcriptSection = this.buildConversationTranscriptMarkdown({
+      session,
+      conversation,
+      detectedLanguage: detectedLang
+    });
+
+    const nowFormatted = new Date().toLocaleString('en-US', {
+      timeZone: 'Asia/Kolkata',
+      dateStyle: 'full',
+      timeStyle: 'medium'
+    });
+
+    // 4. Combine into complete Markdown document
+    const fullMarkdownContent = `# 🎙️ RootForge Discovery Call Specification & Requirements Document
+**Project Objective:** ${requirements.business_objective || requirements.business_problem || 'Enterprise AI Solution Discovery'}  
+**Workspace ID:** \`${session?.workspaceId || 'default-workspace'}\`  
+**Session ID:** \`${session?.id || 'vses-live'}\`  
+**Generated On:** ${nowFormatted} (IST)  
+**Status:** ✅ Discovery Completed & Document Saved to Workspace  
+
+---
+
+${transcriptSection}
+
+---
+
+## 🏛️ Synthesized Business Architecture & 28-Section Requirements Blueprint
+
+${synthesizedSections}
+`;
+
+    // 5. Save Markdown file to uploads directory
+    const workspacePrefix = session?.workspaceId || 'workspace';
+    const fileName = `${workspacePrefix}-${session?.id || Date.now()}-project-requirements.md`;
     const filePath = path.join(uploadsDir, fileName);
 
-    fs.writeFileSync(filePath, markdownContent, 'utf8');
-    const fileSize = Buffer.byteLength(markdownContent, 'utf8');
+    fs.writeFileSync(filePath, fullMarkdownContent, 'utf8');
+    const fileSize = Buffer.byteLength(fullMarkdownContent, 'utf8');
 
     console.log(`[VoiceAgent] Markdown generated and saved: ${fileName} (${fileSize} bytes)`);
 
-    // Register Document in Prisma PostgreSQL Database for the Workspace
+    // 6. Register Document in Prisma PostgreSQL Database for the Workspace
     let documentRecord = null;
     try {
-      if (prisma?.document && session?.workspaceId) {
-        documentRecord = await prisma.document.create({
-          data: {
-            workspaceId: session.workspaceId,
-            filename: fileName,
-            originalName: 'project-requirements.md',
-            fileType: 'text/markdown',
-            fileSize,
-            status: 'ANALYZED',
-            extractedText: markdownContent
+      if (prisma?.document) {
+        // Validate or resolve workspace ID in PostgreSQL
+        let targetWorkspaceId = session?.workspaceId;
+        if (targetWorkspaceId) {
+          try {
+            const wsExists = await prisma.workspace.findUnique({
+              where: { id: targetWorkspaceId },
+              select: { id: true, name: true }
+            });
+            if (!wsExists) targetWorkspaceId = null;
+          } catch {
+            targetWorkspaceId = null;
           }
-        });
-        console.log(`[VoiceAgent] Created Document in Workspace ${session.workspaceId}: ${documentRecord.id}`);
+        }
+
+        // If no explicit workspace, find first existing workspace in DB
+        if (!targetWorkspaceId) {
+          try {
+            const firstWs = await prisma.workspace.findFirst({
+              select: { id: true }
+            });
+            if (firstWs) targetWorkspaceId = firstWs.id;
+          } catch {}
+        }
+
+        if (targetWorkspaceId) {
+          // Check if document already exists for this filename
+          const existingDoc = await prisma.document.findFirst({
+            where: {
+              workspaceId: targetWorkspaceId,
+              filename: fileName
+            }
+          });
+
+          if (existingDoc) {
+            documentRecord = await prisma.document.update({
+              where: { id: existingDoc.id },
+              data: {
+                fileSize,
+                status: 'ANALYZED',
+                extractedText: fullMarkdownContent,
+                updatedAt: new Date()
+              }
+            });
+            console.log(`[VoiceAgent] Updated existing Document in Workspace ${targetWorkspaceId}: ${documentRecord.id}`);
+          } else {
+            documentRecord = await prisma.document.create({
+              data: {
+                workspaceId: targetWorkspaceId,
+                filename: fileName,
+                originalName: `Voice-Discovery-Requirements-${(session?.id || 'live').slice(-6)}.md`,
+                fileType: 'text/markdown',
+                fileSize,
+                status: 'ANALYZED',
+                extractedText: fullMarkdownContent
+              }
+            });
+            console.log(`[VoiceAgent] Created new Document in Workspace ${targetWorkspaceId}: ${documentRecord.id}`);
+          }
+
+          // Optional: Record Activity Log for the Workspace
+          try {
+            if (prisma?.activityLog) {
+              await prisma.activityLog.create({
+                data: {
+                  workspaceId: targetWorkspaceId,
+                  action: 'VOICE_DISCOVERY_DOCUMENT_CREATED',
+                  entityType: 'DOCUMENT',
+                  entityId: documentRecord.id,
+                  description: `Voice Discovery Requirements Document created with full call transcript (${conversation.length} dialogue turns).`
+                }
+              });
+            }
+          } catch {}
+        }
       }
     } catch (err) {
       console.warn('[AiVoiceConsultant] Document registration notice:', err.message);
@@ -440,7 +608,7 @@ ${JSON.stringify(requirements, null, 2)}`;
       fileName,
       filePath,
       fileSize,
-      markdownContent,
+      markdownContent: fullMarkdownContent,
       documentId: documentRecord?.id || null
     };
   }

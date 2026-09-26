@@ -394,6 +394,21 @@ export class VoiceWebhookService {
         case 'completed':
           mappedStatus = 'completed';
           updates.endedAt = new Date();
+
+          // Generate full transcript & requirements document upon call completion
+          try {
+            const state = this.getSessionState(session.id) || (session.twilioCallSid ? this.getSessionState(session.twilioCallSid) : null);
+            if (state && state.conversation && state.conversation.length > 0 && !state.generatedDoc) {
+              const docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+                session,
+                conversation: state.conversation,
+                requirements: state.requirements || {}
+              });
+              state.generatedDoc = docResult;
+            }
+          } catch (docErr) {
+            console.warn('[VoiceWebhook] Document generation on status callback notice:', docErr.message);
+          }
           break;
         case 'busy':
         case 'failed':
