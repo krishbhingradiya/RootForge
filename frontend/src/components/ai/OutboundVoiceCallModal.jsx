@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Phone, PhoneCall, PhoneOff, PhoneForwarded, X, Loader2, AlertCircle, 
   CheckCircle2, ShieldCheck, Sparkles, Volume2, Download, FileText, 
-  ArrowRight, MessageSquare, ListCheck, Layers
+  ArrowRight, MessageSquare, ListCheck, Layers, RefreshCw, Copy, Check,
+  Activity, Terminal, Cpu
 } from 'lucide-react';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -33,14 +34,18 @@ export const OutboundVoiceCallModal = ({
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [callDurationSeconds, setCallDurationSeconds] = useState(0);
 
+  // Pipeline telemetry state
+  const [pipelineTelemetry, setPipelineTelemetry] = useState(null);
+  const [activeTab, setActiveTab] = useState('document'); // 'document' | 'transcript' | 'insights' | 'telemetry'
+  const [copied, setCopied] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
   // Completed Discovery Data
   const [discoveryData, setDiscoveryData] = useState(null);
-  const [showTranscript, setShowTranscript] = useState(false);
   const [loadingRequirements, setLoadingRequirements] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   const pollTimerRef = useRef(null);
-
   const durationTimerRef = useRef(null);
 
   // Clean up timers on unmount or close
@@ -65,30 +70,42 @@ export const OutboundVoiceCallModal = ({
     };
   }, [callState]);
 
-  // Session status polling
+  // Session status and pipeline polling
   useEffect(() => {
-    if (activeSessionId && (callState === 'starting' || callState === 'calling' || callState === 'connected' || callState === 'active')) {
+    if (activeSessionId && (callState === 'starting' || callState === 'calling' || callState === 'connected' || callState === 'active' || (callState === 'completed' && !discoveryData?.markdownContent))) {
       pollTimerRef.current = setInterval(async () => {
         try {
-          const res = await api.getVoiceSessionStatus(activeSessionId);
-          if (res && res.session) {
-            const s = res.session.status;
+          const res = await api.getVoicePipelineStatus(activeSessionId).catch(() => api.getVoiceSessionStatus(activeSessionId));
+          if (res) {
+            setPipelineTelemetry(res);
+            const s = res.callStatus || res.session?.status;
+            const procStatus = res.processingStatus;
+
             if (s === 'ringing' || s === 'initiating') {
               setCallState('calling');
               setStatusMessage('Calling your phone... Please answer when it rings.');
             } else if (s === 'connected' || s === 'active') {
               setCallState('active');
-              setStatusMessage('AI Voice Agent connected — Listening & Analyzing...');
-            } else if (s === 'completed') {
+              setStatusMessage('AI Voice Agent connected — Listening & Analyzing in Real-time...');
+            } else if (s === 'completed' || procStatus === 'COMPLETED') {
               setCallState('completed');
-              setStatusMessage('Discovery Completed');
-              if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-              fetchRequirements(activeSessionId);
-            } else if (s === 'failed') {
+              if (procStatus === 'COMPLETED' || res.hasRawTranscript || res.generatedDoc) {
+                setStatusMessage('AI Discovery Pipeline Completed & Saved to Workspace');
+                fetchRequirements(activeSessionId);
+              } else if (procStatus === 'TRANSCRIBING') {
+                setStatusMessage('Sarvam STT is transcribing audio recording...');
+              } else if (procStatus === 'ANALYZING') {
+                setStatusMessage('Groq is performing deep structured business analysis...');
+              } else if (procStatus === 'DOCUMENT_GENERATING') {
+                setStatusMessage('Synthesizing 28-section discovery specification document...');
+              } else {
+                setStatusMessage('Call Completed — Processing Pipeline...');
+                fetchRequirements(activeSessionId);
+              }
+            } else if (s === 'failed' || procStatus === 'FAILED') {
               setCallState('error');
-              setErrorMessage(res.session.errorMessage || 'Unable to connect the voice call. Please try again.');
-              setStatusMessage('Call Failed');
-              if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+              setErrorMessage(res.lastError || res.session?.errorMessage || 'Voice call or processing pipeline encountered an issue.');
+              setStatusMessage('Processing Failed');
             }
           }
         } catch (err) {
@@ -102,7 +119,7 @@ export const OutboundVoiceCallModal = ({
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [activeSessionId, callState]);
+  }, [activeSessionId, callState, discoveryData]);
 
   const fetchRequirements = async (sessionId) => {
     setLoadingRequirements(true);
@@ -121,7 +138,29 @@ export const OutboundVoiceCallModal = ({
     }
   };
 
-  if (!isOpen) return null;
+  const handleRetryPipeline = async () => {
+    if (!activeSessionId) return;
+    setRetrying(true);
+    try {
+      await api.retryVoicePipeline(activeSessionId);
+      setStatusMessage('Retrying AI Voice Intelligence Pipeline...');
+      setCallState('completed');
+      setTimeout(() => fetchRequirements(activeSessionId), 2000);
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to trigger pipeline retry.');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const handleCopyMarkdown = () => {
+    const md = discoveryData?.markdownContent || discoveryData?.generatedDoc?.markdownContent;
+    if (md) {
+      navigator.clipboard.writeText(md);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const formatDuration = (secs) => {
     const mins = Math.floor(secs / 60);
@@ -150,7 +189,7 @@ export const OutboundVoiceCallModal = ({
     setErrorMessage('');
     setCallDurationSeconds(0);
     setDiscoveryData(null);
-    setShowTranscript(false);
+    setPipelineTelemetry(null);
 
     try {
       const res = await api.initiateVoiceCall({
@@ -192,7 +231,7 @@ export const OutboundVoiceCallModal = ({
       console.warn('Could not cancel call on server:', err.message);
     } finally {
       setCallState('completed');
-      setStatusMessage('Discovery Completed');
+      setStatusMessage('Call Finished — Processing Discovery Pipeline...');
       fetchRequirements(activeSessionId);
     }
   };
@@ -204,13 +243,12 @@ export const OutboundVoiceCallModal = ({
     setActiveSessionId(null);
     setCallDurationSeconds(0);
     setDiscoveryData(null);
-    setShowTranscript(false);
+    setPipelineTelemetry(null);
   };
 
   const handleDownloadMarkdown = async () => {
     setDownloading(true);
     try {
-      // 1. If markdown content is already available in memory, download instantly via Blob
       const inlineMarkdown = discoveryData?.markdownContent || discoveryData?.generatedDoc?.markdownContent;
       const targetFilename = discoveryData?.fileName || discoveryData?.generatedDoc?.fileName || `project-requirements-${activeSessionId || 'session'}.md`;
 
@@ -227,7 +265,6 @@ export const OutboundVoiceCallModal = ({
         return;
       }
 
-      // 2. Otherwise request requirements and generate document on the fly
       if (activeSessionId) {
         const reqData = await api.getVoiceSessionRequirements(activeSessionId);
         const fetchedMd = reqData?.markdownContent || reqData?.generatedDoc?.markdownContent;
@@ -247,7 +284,6 @@ export const OutboundVoiceCallModal = ({
           return;
         }
 
-        // 3. Direct URL fallback
         const downloadUrl = api.getVoiceSessionMarkdownUrl(activeSessionId);
         window.open(downloadUrl, '_blank');
       }
@@ -261,6 +297,7 @@ export const OutboundVoiceCallModal = ({
     }
   };
 
+  if (!isOpen) return null;
 
   return (
     <div
@@ -285,7 +322,7 @@ export const OutboundVoiceCallModal = ({
         className="card"
         style={{
           width: '100%',
-          maxWidth: callState === 'completed' && discoveryData ? 620 : 480,
+          maxWidth: callState === 'completed' && discoveryData ? 780 : 500,
           backgroundColor: 'var(--bg-surface, #1E232D)',
           border: '1px solid var(--border-medium, #2A313C)',
           borderRadius: 16,
@@ -299,7 +336,7 @@ export const OutboundVoiceCallModal = ({
         {/* Header Bar */}
         <div
           style={{
-            padding: '18px 22px',
+            padding: '16px 20px',
             borderBottom: '1px solid var(--border-subtle, #2A313C)',
             display: 'flex',
             alignItems: 'center',
@@ -310,8 +347,8 @@ export const OutboundVoiceCallModal = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div
               style={{
-                width: 40,
-                height: 40,
+                width: 38,
+                height: 38,
                 borderRadius: 10,
                 backgroundColor: 'rgba(217, 119, 6, 0.15)',
                 color: 'var(--accent-amber, #D97706)',
@@ -321,14 +358,14 @@ export const OutboundVoiceCallModal = ({
                 justifyContent: 'center'
               }}
             >
-              <PhoneCall size={22} />
+              <PhoneCall size={20} />
             </div>
             <div>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary, #FAF8F5)' }}>
+              <h2 style={{ fontSize: '1.02rem', fontWeight: 700, margin: 0, color: 'var(--text-primary, #FAF8F5)' }}>
                 AI Voice Business Consultant
               </h2>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #94A3B8)', margin: 0, marginTop: 2 }}>
-                Real-time discovery agent powered by Groq & Multilingual Voice.
+              <p style={{ fontSize: '0.76rem', color: 'var(--text-muted, #94A3B8)', margin: 0, marginTop: 2 }}>
+                Real-time Multilingual Discovery (Sarvam STT + Groq Architecture Engine)
               </p>
             </div>
           </div>
@@ -345,13 +382,13 @@ export const OutboundVoiceCallModal = ({
         </div>
 
         {/* Content Body */}
-        <div style={{ padding: '22px 24px', maxHeight: '75vh', overflowY: 'auto' }}>
+        <div style={{ padding: '20px 22px', maxHeight: '78vh', overflowY: 'auto' }}>
           {/* Status Badge */}
           <div
             style={{
-              padding: '12px 16px',
+              padding: '10px 14px',
               borderRadius: 10,
-              marginBottom: 20,
+              marginBottom: 16,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -379,19 +416,19 @@ export const OutboundVoiceCallModal = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {callState === 'starting' || callState === 'calling' ? (
-                <Loader2 size={18} className="spin" color="var(--accent-amber, #D97706)" />
+                <Loader2 size={16} className="spin" color="var(--accent-amber, #D97706)" />
               ) : callState === 'active' || callState === 'connected' ? (
                 <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#10B981', animation: 'pulse 1s infinite' }} />
               ) : callState === 'error' ? (
-                <AlertCircle size={18} color="#EF4444" />
+                <AlertCircle size={16} color="#EF4444" />
               ) : callState === 'completed' ? (
-                <CheckCircle2 size={18} color="#10B981" />
+                <CheckCircle2 size={16} color="#10B981" />
               ) : (
-                <Sparkles size={18} color="var(--accent-amber, #D97706)" />
+                <Sparkles size={16} color="var(--accent-amber, #D97706)" />
               )}
               <span
                 style={{
-                  fontSize: '0.85rem',
+                  fontSize: '0.84rem',
                   fontWeight: 600,
                   color: callState === 'error' ? '#EF4444' : (callState === 'active' || callState === 'completed') ? '#10B981' : 'var(--text-primary)'
                 }}
@@ -407,7 +444,7 @@ export const OutboundVoiceCallModal = ({
             )}
           </div>
 
-          {/* Active Call Visualization */}
+          {/* Active Call State */}
           {callState === 'calling' || callState === 'active' || callState === 'connected' ? (
             <div
               style={{
@@ -442,7 +479,7 @@ export const OutboundVoiceCallModal = ({
               </h4>
               <p style={{ margin: '6px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                 {callState === 'active'
-                  ? 'Speak freely in English, Hindi, or Gujarati. AI is reasoning and asking focused counter-questions.'
+                  ? 'Speak freely in Gujarati, Hindi, or English. RootForge AI analyzes your speech and formulates architecture requirements.'
                   : 'Please answer your phone when it rings to connect to RootForge AI.'}
               </p>
 
@@ -464,127 +501,282 @@ export const OutboundVoiceCallModal = ({
               </button>
             </div>
           ) : callState === 'completed' ? (
-            /* Completed Discovery View */
+            /* Completed / Analysis Tabs View */
             <div>
+              {/* Tab Navigation */}
               <div
                 style={{
-                  padding: '16px 18px',
-                  borderRadius: 12,
-                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                  border: '1px solid rgba(16, 185, 129, 0.25)',
-                  marginBottom: 16
+                  display: 'flex',
+                  borderBottom: '1px solid var(--border-subtle, #2A313C)',
+                  marginBottom: 16,
+                  gap: 4
                 }}
               >
-                <h4 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CheckCircle2 size={18} />
-                  <span>Requirements Discovered & Saved</span>
-                </h4>
-                <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary, #CBD5E1)', lineHeight: 1.5 }}>
-                  The 28-section <code style={{ color: '#F59E0B' }}>project-requirements.md</code> document has been generated and linked directly to your RootForge Solution Builder pipeline.
-                </p>
-              </div>
-
-              {/* Discovered Highlights Summary */}
-              {discoveryData?.requirements && (
-                <div
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('document')}
                   style={{
-                    backgroundColor: 'rgba(0,0,0,0.2)',
-                    borderRadius: 10,
-                    padding: '14px 16px',
-                    border: '1px solid var(--border-subtle, #2A313C)',
-                    marginBottom: 16
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    borderBottom: `2px solid ${activeTab === 'document' ? 'var(--accent-amber, #D97706)' : 'transparent'}`,
+                    backgroundColor: 'transparent',
+                    color: activeTab === 'document' ? 'var(--accent-amber, #D97706)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
                   }}
                 >
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
-                    Discovered Overview
-                  </span>
-                  {discoveryData.requirements.business_problem && (
-                    <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
-                      <strong style={{ color: 'var(--accent-amber, #D97706)' }}>Problem: </strong>
-                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.business_problem}</span>
+                  <FileText size={15} />
+                  <span>28-Section Specification (.md)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('transcript')}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    borderBottom: `2px solid ${activeTab === 'transcript' ? 'var(--accent-amber, #D97706)' : 'transparent'}`,
+                    backgroundColor: 'transparent',
+                    color: activeTab === 'transcript' ? 'var(--accent-amber, #D97706)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <MessageSquare size={15} />
+                  <span>Verbatim Transcript ({discoveryData?.conversation?.length || 0})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('insights')}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    borderBottom: `2px solid ${activeTab === 'insights' ? 'var(--accent-amber, #D97706)' : 'transparent'}`,
+                    backgroundColor: 'transparent',
+                    color: activeTab === 'insights' ? 'var(--accent-amber, #D97706)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <Cpu size={15} />
+                  <span>Structured Insights</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('telemetry')}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    borderBottom: `2px solid ${activeTab === 'telemetry' ? 'var(--accent-amber, #D97706)' : 'transparent'}`,
+                    backgroundColor: 'transparent',
+                    color: activeTab === 'telemetry' ? 'var(--accent-amber, #D97706)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <Activity size={15} />
+                  <span>Pipeline Telemetry</span>
+                </button>
+              </div>
+
+              {/* TAB 1: 28-Section Specification Document */}
+              {activeTab === 'document' && (
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 10
+                    }}
+                  >
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                      {discoveryData?.fileName || `project-requirements-${activeSessionId}.md`}
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={handleCopyMarkdown}
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                      >
+                        {copied ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                        <span>{copied ? 'Copied!' : 'Copy Markdown'}</span>
+                      </button>
                     </div>
-                  )}
-                  {Array.isArray(discoveryData.requirements.features) && discoveryData.requirements.features.length > 0 && (
-                    <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
-                      <strong style={{ color: '#10B981' }}>Key Features: </strong>
-                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.features.join(', ')}</span>
-                    </div>
-                  )}
+                  </div>
+
+                  <div
+                    style={{
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                      padding: '14px 16px',
+                      borderRadius: 10,
+                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      border: '1px solid var(--border-subtle, #2A313C)',
+                      fontFamily: 'monospace',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-secondary, #CBD5E1)',
+                      whiteSpace: 'pre-wrap',
+                      lineHeight: 1.6
+                    }}
+                  >
+                    {discoveryData?.markdownContent || discoveryData?.generatedDoc?.markdownContent || 'Loading specification markdown document...'}
+                  </div>
                 </div>
               )}
 
-              {/* Transcript Drawer Toggle */}
-              {discoveryData?.conversation && discoveryData.conversation.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowTranscript(!showTranscript)}
-                    className="btn btn-ghost"
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: '0.82rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: 'var(--accent-amber, #D97706)'
-                    }}
-                  >
-                    <MessageSquare size={15} />
-                    <span>{showTranscript ? 'Hide Conversation Transcript' : `View Conversation Transcript (${discoveryData.conversation.length} turns)`}</span>
-                  </button>
-
-                  {showTranscript && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        maxHeight: 220,
-                        overflowY: 'auto',
-                        padding: 12,
-                        borderRadius: 8,
-                        backgroundColor: 'rgba(0,0,0,0.35)',
-                        border: '1px solid var(--border-medium, #2A313C)',
-                        fontSize: '0.8rem'
-                      }}
-                    >
-                      {discoveryData.conversation.map((c, idx) => (
-                        <div key={idx} style={{ marginBottom: 10 }}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              fontSize: '0.7rem',
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              backgroundColor: c.role === 'assistant' ? 'rgba(217, 119, 6, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                              color: c.role === 'assistant' ? 'var(--accent-amber)' : '#10B981',
-                              marginRight: 8
-                            }}
-                          >
-                            {c.role}
-                          </span>
-                          <span style={{ color: 'var(--text-primary)' }}>{c.text}</span>
-                          {c.englishText && c.englishText !== c.text && (
-                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginLeft: 8, marginTop: 2, fontStyle: 'italic' }}>
-                              Normalized: {c.englishText}
+              {/* TAB 2: Verbatim Conversation Transcript */}
+              {activeTab === 'transcript' && (
+                <div style={{ maxHeight: 290, overflowY: 'auto' }}>
+                  {discoveryData?.conversation && discoveryData.conversation.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {discoveryData.conversation.map((turn, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 8,
+                            backgroundColor: turn.role === 'assistant' ? 'rgba(217, 119, 6, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                            border: `1px solid ${turn.role === 'assistant' ? 'rgba(217, 119, 6, 0.2)' : 'rgba(16, 185, 129, 0.2)'}`
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                color: turn.role === 'assistant' ? 'var(--accent-amber, #D97706)' : '#10B981'
+                              }}
+                            >
+                              {turn.role === 'assistant' ? '🤖 RootForge AI Consultant' : '👤 Client / User'}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              {turn.timestamp ? new Date(turn.timestamp).toLocaleTimeString() : `Turn ${idx + 1}`}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            {turn.text}
+                          </div>
+                          {turn.englishText && turn.englishText !== turn.text && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, fontStyle: 'italic' }}>
+                              Normalized: {turn.englishText}
                             </div>
                           )}
                         </div>
                       ))}
                     </div>
+                  ) : (
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No conversation turns available.</p>
                   )}
                 </div>
               )}
 
+              {/* TAB 3: Structured Insights */}
+              {activeTab === 'insights' && (
+                <div style={{ maxHeight: 290, overflowY: 'auto' }}>
+                  {discoveryData?.requirements ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {discoveryData.requirements.executiveSummary && (
+                        <div>
+                          <strong style={{ fontSize: '0.82rem', color: 'var(--accent-amber)' }}>Executive Summary:</strong>
+                          <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            {discoveryData.requirements.executiveSummary}
+                          </p>
+                        </div>
+                      )}
+                      {discoveryData.requirements.painPoints && (
+                        <div>
+                          <strong style={{ fontSize: '0.82rem', color: '#EF4444' }}>Identified Pain Points:</strong>
+                          <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            {Array.isArray(discoveryData.requirements.painPoints)
+                              ? discoveryData.requirements.painPoints.map((p, i) => <li key={i}>{p}</li>)
+                              : <li>{discoveryData.requirements.painPoints}</li>}
+                          </ul>
+                        </div>
+                      )}
+                      {discoveryData.requirements.functionalRequirements && (
+                        <div>
+                          <strong style={{ fontSize: '0.82rem', color: '#10B981' }}>Functional Requirements:</strong>
+                          <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            {Array.isArray(discoveryData.requirements.functionalRequirements)
+                              ? discoveryData.requirements.functionalRequirements.map((r, i) => <li key={i}>{r}</li>)
+                              : <li>{discoveryData.requirements.functionalRequirements}</li>}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Structured requirements being processed.</p>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: Telemetry Diagnostics */}
+              {activeTab === 'telemetry' && (
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(0,0,0,0.3)',
+                    border: '1px solid var(--border-subtle, #2A313C)',
+                    fontSize: '0.78rem',
+                    fontFamily: 'monospace',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6
+                  }}
+                >
+                  <div><strong>Session ID:</strong> {activeSessionId || 'N/A'}</div>
+                  <div><strong>Call SID:</strong> {pipelineTelemetry?.callSid || 'N/A'}</div>
+                  <div><strong>Recording SID:</strong> {pipelineTelemetry?.recordingSid || 'N/A'}</div>
+                  <div><strong>Detected Language:</strong> {pipelineTelemetry?.detectedLanguage || discoveryData?.detectedLanguage || 'en-IN'}</div>
+                  <div><strong>STT Status:</strong> {pipelineTelemetry?.transcriptStatus || 'COMPLETED'}</div>
+                  <div><strong>Analysis Status:</strong> {pipelineTelemetry?.analysisStatus || 'COMPLETED'}</div>
+                  <div><strong>Processing Status:</strong> {pipelineTelemetry?.processingStatus || 'COMPLETED'}</div>
+                  <div><strong>Retry Count:</strong> {pipelineTelemetry?.retryCount || 0}</div>
+                </div>
+              )}
+
               {/* Action Buttons */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
                 <button
                   type="button"
                   onClick={handleReset}
                   className="btn btn-secondary"
-                  style={{ padding: '9px 16px', fontSize: '0.84rem' }}
+                  style={{ padding: '8px 14px', fontSize: '0.82rem' }}
                 >
                   Start New Call
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRetryPipeline}
+                  disabled={retrying}
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 14px', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <RefreshCw size={14} className={retrying ? 'spin' : ''} />
+                  <span>{retrying ? 'Retrying...' : 'Retry Pipeline'}</span>
                 </button>
 
                 <button
@@ -593,8 +785,8 @@ export const OutboundVoiceCallModal = ({
                   disabled={downloading}
                   className="btn btn-secondary"
                   style={{
-                    padding: '9px 16px',
-                    fontSize: '0.84rem',
+                    padding: '8px 16px',
+                    fontSize: '0.82rem',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6
@@ -602,25 +794,24 @@ export const OutboundVoiceCallModal = ({
                 >
                   {downloading ? (
                     <>
-                      <Loader2 size={15} className="spin" />
-                      <span>Generating .md...</span>
+                      <Loader2 size={14} className="spin" />
+                      <span>Downloading .md...</span>
                     </>
                   ) : (
                     <>
-                      <Download size={15} />
+                      <Download size={14} />
                       <span>Download .md</span>
                     </>
                   )}
                 </button>
-
 
                 <button
                   type="button"
                   onClick={onClose}
                   className="btn btn-primary"
                   style={{
-                    padding: '9px 20px',
-                    fontSize: '0.84rem',
+                    padding: '8px 18px',
+                    fontSize: '0.82rem',
                     fontWeight: 600,
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -630,12 +821,13 @@ export const OutboundVoiceCallModal = ({
                     color: '#FFFFFF'
                   }}
                 >
-                  <span>Continue with Solution Builder</span>
-                  <ArrowRight size={15} />
+                  <span>Continue in Workspace</span>
+                  <ArrowRight size={14} />
                 </button>
               </div>
             </div>
           ) : (
+            /* Idle / Input View */
             <form onSubmit={handleStartCall}>
               <div style={{ marginBottom: 18 }}>
                 <label
@@ -772,7 +964,7 @@ export const OutboundVoiceCallModal = ({
         {/* Security / Privacy Footer */}
         <div
           style={{
-            padding: '12px 24px',
+            padding: '10px 20px',
             backgroundColor: 'rgba(0, 0, 0, 0.25)',
             borderTop: '1px solid var(--border-subtle, #2A313C)',
             display: 'flex',
@@ -789,3 +981,4 @@ export const OutboundVoiceCallModal = ({
     </div>
   );
 };
+

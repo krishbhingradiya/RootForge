@@ -1,9 +1,14 @@
 import twilio from 'twilio';
 import { twilioVoiceService } from './twilioVoice.service.js';
 import { aiVoiceConsultantService } from './aiVoiceConsultant.service.js';
+import { sarvamSttService } from './sarvamStt.service.js';
+import { prisma } from '../../prisma.js';
 
 // In-Memory conversation state cache: sessionKey -> { conversation: [], requirements: {}, lastDetectedLanguage: 'en-IN', generatedDoc: null }
 const sessionStates = new Map();
+
+// In-flight recording processing set for idempotency
+const inFlightRecordings = new Set();
 
 export class VoiceWebhookService {
   constructor() {
@@ -186,7 +191,6 @@ export class VoiceWebhookService {
     console.log('[VoiceAgent] Speech detected');
     console.log(`[VoiceAgent] Twilio stream CallSid: ${callSid || 'UNKNOWN'}`);
 
-    // Retrieve active session record from DB/memory
     let session = null;
     try {
       if (sessionId) session = await twilioVoiceService.getSession(sessionId);
@@ -242,14 +246,15 @@ export class VoiceWebhookService {
       timestamp: new Date().toISOString()
     });
 
-    // Immediately persist user turn to PostgreSQL
+    // Persist user turn to PostgreSQL
     if (session?.id && prisma?.voiceSession) {
       try {
         await prisma.voiceSession.update({
           where: { id: session.id },
           data: {
             conversationJson: JSON.stringify(state.conversation),
-            requirementsJson: JSON.stringify(state.requirements || {})
+            requirementsJson: JSON.stringify(state.requirements || {}),
+            detectedLanguage: state.lastDetectedLanguage
           }
         });
       } catch (e) {
@@ -265,7 +270,6 @@ export class VoiceWebhookService {
       console.log('[VoiceAgent] User requested call completion. Wrapping up requirements.');
       console.log('[VoiceAgent] Conversation completed');
 
-      // Generate complete 28-section requirements document
       let docResult = null;
       try {
         docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
@@ -278,7 +282,6 @@ export class VoiceWebhookService {
         console.warn('[VoiceAgent] Final markdown generation error:', err.message);
       }
 
-      // Final farewell in user's language
       let farewellText = 'Thank you for discussing your project with RootForge AI. Your complete project requirements document has been generated and saved to your workspace. Goodbye!';
       if (state.lastDetectedLanguage.startsWith('gu')) {
         farewellText = 'રૂટફોર્જ એઆઈ સાથે વાત કરવા બદલ આભાર. તમારી સંપૂર્ણ રિક્વાયરમેન્ટ ફાઇલ સેવ થઈ ગઈ છે. આવજો!';
@@ -297,7 +300,6 @@ export class VoiceWebhookService {
       );
       response.hangup();
 
-      // Mark session as completed in DB
       if (session) {
         (async () => {
           try {
@@ -305,7 +307,8 @@ export class VoiceWebhookService {
               status: 'completed',
               endedAt: new Date(),
               conversationJson: JSON.stringify(state.conversation),
-              requirementsJson: JSON.stringify(state.requirements || {})
+              requirementsJson: JSON.stringify(state.requirements || {}),
+              processingStatus: 'COMPLETED'
             });
           } catch {}
         })();
@@ -383,7 +386,8 @@ export class VoiceWebhookService {
               status: 'completed',
               endedAt: new Date(),
               conversationJson: JSON.stringify(state.conversation),
-              requirementsJson: JSON.stringify(state.requirements || {})
+              requirementsJson: JSON.stringify(state.requirements || {}),
+              processingStatus: 'COMPLETED'
             });
           } catch {}
         })();
@@ -418,7 +422,7 @@ export class VoiceWebhookService {
       timestamp: new Date().toISOString()
     });
 
-    // Immediately persist assistant turn to PostgreSQL
+    // Persist assistant turn to PostgreSQL
     if (session?.id && prisma?.voiceSession) {
       try {
         await prisma.voiceSession.update({
@@ -461,29 +465,251 @@ export class VoiceWebhookService {
               { twilioCallSid: sessionIdOrCallSid }
             ]
           },
-          select: { conversationJson: true, requirementsJson: true }
+          select: {
+            conversationJson: true,
+            requirementsJson: true,
+            rawTranscript: true,
+            detectedLanguage: true,
+            processingStatus: true,
+            transcriptStatus: true,
+            analysisStatus: true,
+            recordingUrl: true,
+            recordingSid: true,
+            recordingDuration: true,
+            lastError: true,
+            retryCount: true
+          }
         });
 
-        if (dbRecord?.conversationJson) {
-          const parsed = JSON.parse(dbRecord.conversationJson);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            if (!state) {
-              state = this.resolveSessionState({ sessionId: sessionIdOrCallSid });
-            }
-            if (parsed.length > (state.conversation?.length || 0)) {
-              state.conversation = parsed;
-            }
-            if (dbRecord.requirementsJson) {
-              try {
-                state.requirements = { ...state.requirements, ...JSON.parse(dbRecord.requirementsJson) };
-              } catch {}
-            }
+        if (dbRecord) {
+          if (!state) {
+            state = this.resolveSessionState({ sessionId: sessionIdOrCallSid });
           }
+
+          if (dbRecord.conversationJson) {
+            try {
+              const parsed = JSON.parse(dbRecord.conversationJson);
+              if (Array.isArray(parsed) && parsed.length > (state.conversation?.length || 0)) {
+                state.conversation = parsed;
+              }
+            } catch {}
+          }
+
+          if (dbRecord.requirementsJson) {
+            try {
+              state.requirements = { ...state.requirements, ...JSON.parse(dbRecord.requirementsJson) };
+            } catch {}
+          }
+
+          if (dbRecord.detectedLanguage) {
+            state.lastDetectedLanguage = dbRecord.detectedLanguage;
+          }
+
+          state.rawTranscript = dbRecord.rawTranscript;
+          state.processingStatus = dbRecord.processingStatus;
+          state.transcriptStatus = dbRecord.transcriptStatus;
+          state.analysisStatus = dbRecord.analysisStatus;
+          state.recordingUrl = dbRecord.recordingUrl;
+          state.recordingSid = dbRecord.recordingSid;
+          state.recordingDuration = dbRecord.recordingDuration;
+          state.lastError = dbRecord.lastError;
+          state.retryCount = dbRecord.retryCount;
         }
       } catch {}
     }
 
     return state;
+  }
+
+  /**
+   * Complete End-to-End Recording Processing Pipeline
+   * Triggered from Twilio Recording Webhook or Manual Retry
+   */
+  async processRecordingPipeline({ callSid, recordingSid, recordingUrl, recordingDuration = 0, sessionId = null }) {
+    const idempotencyKey = recordingSid || callSid || sessionId;
+    if (inFlightRecordings.has(idempotencyKey)) {
+      console.log(`[VoicePipeline] Pipeline already in-flight for ${idempotencyKey}. Skipping duplicate.`);
+      return;
+    }
+
+    inFlightRecordings.add(idempotencyKey);
+    console.log(`[VoicePipeline] Starting AI Voice Call Intelligence Pipeline for ${idempotencyKey}...`);
+
+    let session = null;
+    try {
+      if (sessionId) session = await twilioVoiceService.getSession(sessionId);
+      if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
+
+      // Step 1: Persist initial recording metadata
+      if (session && prisma?.voiceSession) {
+        await prisma.voiceSession.update({
+          where: { id: session.id },
+          data: {
+            recordingSid: recordingSid || session.recordingSid,
+            recordingUrl: recordingUrl || session.recordingUrl,
+            recordingDuration: recordingDuration || session.recordingDuration,
+            processingStatus: 'RECORDING_AVAILABLE',
+            transcriptStatus: 'TRANSCRIBING',
+            lastError: null
+          }
+        });
+      }
+
+      // Step 2: Sarvam STT Transcription
+      console.log(`[VoicePipeline] Invoking Sarvam STT for audio: ${recordingUrl}`);
+      let sttResult = null;
+      try {
+        sttResult = await sarvamSttService.processTwilioRecording({
+          recordingUrl,
+          recordingSid,
+          sessionId: session?.id || sessionId
+        });
+
+        console.log(`[VoicePipeline] Sarvam STT generated transcript: ${sttResult.transcript.length} chars (Lang: ${sttResult.detectedLanguage})`);
+
+        if (session && prisma?.voiceSession) {
+          await prisma.voiceSession.update({
+            where: { id: session.id },
+            data: {
+              rawTranscript: sttResult.transcript,
+              detectedLanguage: sttResult.detectedLanguage || 'en-IN',
+              transcriptStatus: 'COMPLETED',
+              analysisStatus: 'ANALYZING',
+              processingStatus: 'ANALYZING'
+            }
+          });
+        }
+      } catch (sttErr) {
+        console.error(`[VoicePipeline] Sarvam STT transcription failed: ${sttErr.message}`);
+        if (session && prisma?.voiceSession) {
+          await prisma.voiceSession.update({
+            where: { id: session.id },
+            data: {
+              transcriptStatus: 'FAILED',
+              processingStatus: 'FAILED',
+              lastError: `Transcription failed: ${sttErr.message}`,
+              retryCount: { increment: 1 }
+            }
+          });
+        }
+        throw sttErr;
+      }
+
+      // Step 3: Groq Deep Structured Analysis (22 fields)
+      console.log(`[VoicePipeline] Invoking Groq Deep Structured Analysis on complete transcript...`);
+      const state = this.resolveSessionState({ sessionId: session?.id || sessionId, callSid });
+      let structuredAnalysis = null;
+      try {
+        structuredAnalysis = await aiVoiceConsultantService.extractDeepStructuredAnalysis({
+          transcript: sttResult.transcript,
+          conversation: state.conversation,
+          session
+        });
+
+        console.log(`[VoicePipeline] Groq deep analysis succeeded with ${Object.keys(structuredAnalysis).length} fields.`);
+
+        if (session && prisma?.voiceSession) {
+          await prisma.voiceSession.update({
+            where: { id: session.id },
+            data: {
+              requirementsJson: JSON.stringify(structuredAnalysis),
+              analysisStatus: 'COMPLETED',
+              processingStatus: 'DOCUMENT_GENERATING'
+            }
+          });
+        }
+      } catch (analysisErr) {
+        console.error(`[VoicePipeline] Groq analysis failed: ${analysisErr.message}`);
+        if (session && prisma?.voiceSession) {
+          await prisma.voiceSession.update({
+            where: { id: session.id },
+            data: {
+              analysisStatus: 'FAILED',
+              processingStatus: 'FAILED',
+              lastError: `AI analysis failed: ${analysisErr.message}`,
+              retryCount: { increment: 1 }
+            }
+          });
+        }
+        throw analysisErr;
+      }
+
+      // Step 4: Generate Full 28-Section Project Requirements Document & Register in Workspace
+      console.log(`[VoicePipeline] Synthesizing comprehensive 28-section discovery document...`);
+      let docResult = null;
+      try {
+        docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+          session,
+          conversation: state.conversation,
+          requirements: structuredAnalysis,
+          rawTranscript: sttResult.transcript
+        });
+
+        state.generatedDoc = docResult;
+
+        if (session && prisma?.voiceSession) {
+          await prisma.voiceSession.update({
+            where: { id: session.id },
+            data: {
+              generatedDocJson: JSON.stringify({
+                fileName: docResult.fileName,
+                filePath: docResult.filePath,
+                fileSize: docResult.fileSize,
+                documentId: docResult.documentId
+              }),
+              processingStatus: 'COMPLETED',
+              status: 'completed',
+              endedAt: session.endedAt || new Date()
+            }
+          });
+        }
+
+        console.log(`[VoicePipeline] AI Voice Call Pipeline COMPLETED successfully for ${session?.id || sessionId}!`);
+      } catch (docErr) {
+        console.error(`[VoicePipeline] Document generation failed: ${docErr.message}`);
+        if (session && prisma?.voiceSession) {
+          await prisma.voiceSession.update({
+            where: { id: session.id },
+            data: {
+              processingStatus: 'FAILED',
+              lastError: `Document generation failed: ${docErr.message}`,
+              retryCount: { increment: 1 }
+            }
+          });
+        }
+        throw docErr;
+      }
+    } catch (err) {
+      console.error(`[VoicePipeline] Pipeline error for ${idempotencyKey}:`, err.message);
+    } finally {
+      inFlightRecordings.delete(idempotencyKey);
+    }
+  }
+
+  /**
+   * Handles Twilio Recording Status Callback
+   * Fast HTTP 200 response with non-blocking async execution
+   */
+  async handleRecordingCallback({ callSid, recordingSid, recordingUrl, recordingStatus, recordingDuration = 0, sessionId = null }) {
+    console.log(`[VoiceWebhook] Twilio recording callback: Call ${callSid?.slice(0, 8) || 'N/A'}, Recording ${recordingSid} (${recordingStatus}, ${recordingDuration}s)`);
+
+    if (recordingStatus?.toLowerCase() !== 'completed') {
+      console.log(`[VoiceWebhook] Recording status is '${recordingStatus}', skipping pipeline.`);
+      return;
+    }
+
+    // Launch background asynchronous pipeline immediately without blocking webhook response
+    setImmediate(() => {
+      this.processRecordingPipeline({
+        callSid,
+        recordingSid,
+        recordingUrl,
+        recordingDuration,
+        sessionId
+      }).catch(err => {
+        console.error('[VoiceWebhook] Unhandled background pipeline error:', err.message);
+      });
+    });
   }
 
   /**
@@ -511,8 +737,11 @@ export class VoiceWebhookService {
         case 'completed':
           mappedStatus = 'completed';
           updates.endedAt = new Date();
+          if (!session.recordingSid) {
+            updates.processingStatus = 'RECORDING_PENDING';
+          }
 
-          // Generate full transcript & requirements document upon call completion
+          // Generate transcript & requirements document upon call completion if dialogue turns exist
           try {
             const state = this.getSessionState(session.id) || (session.twilioCallSid ? this.getSessionState(session.twilioCallSid) : null);
             if (state && state.conversation && state.conversation.length > 0 && !state.generatedDoc) {
@@ -533,6 +762,7 @@ export class VoiceWebhookService {
           mappedStatus = 'failed';
           updates.errorMessage = error || `Call ended with status: ${callStatus}`;
           updates.endedAt = new Date();
+          updates.processingStatus = 'FAILED';
           break;
         case 'canceled':
           mappedStatus = 'cancelled';
@@ -551,4 +781,5 @@ export class VoiceWebhookService {
 }
 
 export const voiceWebhookService = new VoiceWebhookService();
+
 

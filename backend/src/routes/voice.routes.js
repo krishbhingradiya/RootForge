@@ -413,6 +413,202 @@ router.get('/session/:id/markdown', optionalAuth, async (req, res) => {
 
 
 /**
+ * POST /api/voice/recording-status & POST /api/voice/recording
+ * Twilio Call Recording Status Callback Webhook
+ * Twilio sends this when call recording is complete and ready.
+ */
+const handleRecordingWebhook = async (req, res) => {
+  const callSid = req.body.CallSid || req.query.CallSid || null;
+  const recordingSid = req.body.RecordingSid || req.query.RecordingSid || null;
+  const recordingUrl = req.body.RecordingUrl || req.query.RecordingUrl || null;
+  const recordingStatus = req.body.RecordingStatus || req.query.RecordingStatus || 'completed';
+  const recordingDuration = parseInt(req.body.RecordingDuration || req.query.RecordingDuration || '0', 10);
+  const sessionId = req.query.sessionId || req.body.sessionId || null;
+
+  console.log(`[TwilioRecordingWebhook] Received for Call: ${callSid}, Recording: ${recordingSid}, Status: ${recordingStatus}`);
+
+  // Fast response back to Twilio so webhook never blocks
+  res.type('text/xml');
+  res.send('<Response />');
+
+  try {
+    await voiceWebhookService.handleRecordingCallback({
+      callSid,
+      recordingSid,
+      recordingUrl,
+      recordingStatus,
+      recordingDuration,
+      sessionId
+    });
+  } catch (err) {
+    console.error('[TwilioRecordingWebhook] Processing error:', err.message);
+  }
+};
+
+router.post('/recording-status', validateTwilioSignatureSafe, handleRecordingWebhook);
+router.get('/recording-status', handleRecordingWebhook);
+router.post('/recording', validateTwilioSignatureSafe, handleRecordingWebhook);
+router.get('/recording', handleRecordingWebhook);
+
+/**
+ * GET /api/voice/session/:id/pipeline-status
+ * Detailed pipeline observability & diagnostic endpoint
+ */
+router.get('/session/:id/pipeline-status', optionalAuth, async (req, res) => {
+  try {
+    const session = await twilioVoiceService.getSession(req.params.id);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        errorCode: 'SESSION_NOT_FOUND',
+        message: 'Voice session not found.'
+      });
+    }
+
+    const state = await voiceWebhookService.getSessionDetails(session.id);
+
+    res.json({
+      success: true,
+      sessionId: session.id,
+      callSid: session.twilioCallSid,
+      phoneNumberMasked: maskPhoneNumber(session.phoneNumber),
+      workspaceId: session.workspaceId,
+      callStatus: session.status,
+      processingStatus: session.processingStatus || 'PENDING',
+      transcriptStatus: session.transcriptStatus || 'PENDING',
+      analysisStatus: session.analysisStatus || 'PENDING',
+      recordingSid: session.recordingSid || state?.recordingSid || null,
+      recordingUrl: session.recordingUrl || state?.recordingUrl || null,
+      recordingDuration: session.recordingDuration || state?.recordingDuration || 0,
+      detectedLanguage: session.detectedLanguage || state?.lastDetectedLanguage || 'en-IN',
+      turnCount: state?.conversation ? state.conversation.length : 0,
+      rawTranscriptLength: session.rawTranscript ? session.rawTranscript.length : 0,
+      hasRawTranscript: Boolean(session.rawTranscript),
+      rawTranscript: session.rawTranscript || null,
+      requirementsJson: session.requirementsJson ? (typeof session.requirementsJson === 'string' ? JSON.parse(session.requirementsJson) : session.requirementsJson) : (state?.requirements || null),
+      conversation: state?.conversation || [],
+      generatedDoc: state?.generatedDoc || null,
+      lastError: session.lastError || null,
+      retryCount: session.retryCount || 0,
+      timestamps: {
+        startedAt: session.startedAt,
+        connectedAt: session.connectedAt,
+        endedAt: session.endedAt,
+        createdAt: session.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      errorCode: 'PIPELINE_STATUS_ERROR',
+      message: err.message || 'Failed to fetch pipeline status.'
+    });
+  }
+});
+
+/**
+ * POST /api/voice/session/:id/retry-pipeline
+ * Retries the entire background intelligence pipeline for a session
+ */
+router.post('/session/:id/retry-pipeline', optionalAuth, async (req, res) => {
+  try {
+    const session = await twilioVoiceService.getSession(req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, message: 'Voice session not found.' });
+    }
+
+    if (!session.recordingUrl && !session.rawTranscript) {
+      return res.status(400).json({
+        success: false,
+        message: 'No recording URL or transcript available to process.'
+      });
+    }
+
+    // Trigger async background retry
+    setImmediate(() => {
+      voiceWebhookService.processRecordingPipeline({
+        callSid: session.twilioCallSid,
+        recordingSid: session.recordingSid,
+        recordingUrl: session.recordingUrl,
+        recordingDuration: session.recordingDuration,
+        sessionId: session.id
+      }).catch(err => {
+        console.error('[VoiceRoute] Retry pipeline error:', err.message);
+      });
+    });
+
+    res.json({
+      success: true,
+      message: 'Voice intelligence pipeline re-triggered in background.',
+      sessionId: session.id
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * POST /api/voice/session/:id/retry-analysis
+ * Re-runs Groq deep analysis & document generation from existing transcript
+ */
+router.post('/session/:id/retry-analysis', optionalAuth, async (req, res) => {
+  try {
+    const session = await twilioVoiceService.getSession(req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, message: 'Voice session not found.' });
+    }
+
+    const state = await voiceWebhookService.getSessionDetails(session.id);
+    const transcript = session.rawTranscript || state?.conversation?.map(c => `${c.role}: ${c.text}`).join('\n');
+
+    if (!transcript || !transcript.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'No conversation transcript available to analyze.'
+      });
+    }
+
+    // Extract Groq structured analysis
+    const structuredAnalysis = await aiVoiceConsultantService.extractDeepStructuredAnalysis({
+      transcript,
+      conversation: state?.conversation || [],
+      session
+    });
+
+    // Generate Document
+    const docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+      session,
+      conversation: state?.conversation || [],
+      requirements: structuredAnalysis,
+      rawTranscript: session.rawTranscript
+    });
+
+    if (state) state.generatedDoc = docResult;
+
+    if (prisma?.voiceSession) {
+      await prisma.voiceSession.update({
+        where: { id: session.id },
+        data: {
+          requirementsJson: JSON.stringify(structuredAnalysis),
+          analysisStatus: 'COMPLETED',
+          processingStatus: 'COMPLETED'
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'AI analysis and document regenerated successfully.',
+      structuredAnalysis,
+      generatedDoc: docResult
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
  * POST /api/voice/session/:id/cancel
  * Cancels / hangs up an active voice call
  */
@@ -442,4 +638,5 @@ router.get('/config', (req, res) => {
 });
 
 export default router;
+
 

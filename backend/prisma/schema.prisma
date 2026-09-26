@@ -599,14 +599,26 @@ model VoiceSession {
   connectedAt      DateTime?
   endedAt          DateTime?
   errorMessage     String?
+  recordingSid     String?
+  recordingUrl     String?
+  recordingDuration Int?
+  processingStatus String    @default("IDLE") // IDLE, RECORDING_PENDING, RECORDING_AVAILABLE, TRANSCRIBING, TRANSCRIBED, ANALYZING, ANALYZED, DOCUMENT_GENERATING, COMPLETED, FAILED
+  transcriptStatus String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  analysisStatus   String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  rawTranscript    String?   @db.Text
+  detectedLanguage String?   @default("en-IN")
   conversationJson String?   @db.Text
   requirementsJson String?   @db.Text
   generatedDocJson String?   @db.Text
+  retryCount       Int       @default(0)
+  lastError        String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   @@map("voice_sessions")
   @@index([userId, createdAt])
   @@index([twilioCallSid])
+  @@index([recordingSid])
   @@index([status])
+  @@index([processingStatus])
 }

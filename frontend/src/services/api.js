@@ -377,6 +377,12 @@ export const api = {
     request('/voice/call', { method: 'POST', body: JSON.stringify(payload) }),
   getVoiceSessionStatus: (sessionId) =>
     request(`/voice/session/${sessionId}`),
+  getVoicePipelineStatus: (sessionId) =>
+    request(`/voice/session/${sessionId}/pipeline-status`),
+  retryVoicePipeline: (sessionId) =>
+    request(`/voice/session/${sessionId}/retry-pipeline`, { method: 'POST' }),
+  retryVoiceAnalysis: (sessionId) =>
+    request(`/voice/session/${sessionId}/retry-analysis`, { method: 'POST' }),
   getVoiceSessionRequirements: (sessionId) =>
     request(`/voice/session/${sessionId}/requirements`),
   getVoiceSessionMarkdownUrl: (sessionId) =>
