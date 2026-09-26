@@ -12,6 +12,7 @@ import {
   getWorkspaceReadiness,
   getNextRecommendedAction
 } from '../services/workspaceLifecycle.service.js';
+import { solutionWorkspaceCreatorService } from '../services/voice/solutionWorkspaceCreator.service.js';
 
 const router = Router();
 
@@ -352,6 +353,49 @@ router.post('/', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Create workspace error:', error);
     res.status(500).json({ error: 'Failed to create workspace.' });
+  }
+});
+
+/**
+ * POST /api/workspaces/from-voice-session
+ * Transforms Voice Discovery Session & README into a NEW, fully functional Solution Workspace
+ */
+router.post('/from-voice-session', async (req, res) => {
+  try {
+    const { sessionId, sourceWorkspaceId, customName } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId is required to spawn a Solution Workspace.'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    let currentUser = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const jwt = (await import('jsonwebtoken')).default;
+        const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-enterprise-jwt-key-2026-solution-builder';
+        currentUser = jwt.verify(token, JWT_SECRET);
+      } catch {}
+    }
+
+    const result = await solutionWorkspaceCreatorService.createWorkspaceFromVoiceSession({
+      sessionId,
+      sourceWorkspaceId,
+      customName,
+      user: currentUser
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    console.error('[WorkspaceRoutes] Error creating workspace from voice session:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create Solution Workspace from voice session.'
+    });
   }
 });
 

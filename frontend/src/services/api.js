@@ -294,6 +294,7 @@ export const api = {
   // Workspaces
   getWorkspaces: () => request('/workspaces'),
   createWorkspace: (payload) => request('/workspaces', { method: 'POST', body: JSON.stringify(payload) }),
+  createWorkspaceFromVoiceSession: (payload) => request('/workspaces/from-voice-session', { method: 'POST', body: JSON.stringify(payload) }),
   getWorkspace: (id) => request(`/workspaces/${id}`),
   updateWorkspace: (id, payload) => request(`/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteWorkspace: (id) => request(`/workspaces/${id}`, { method: 'DELETE' }),

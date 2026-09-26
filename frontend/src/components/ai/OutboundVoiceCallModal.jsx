@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Phone, PhoneCall, PhoneOff, PhoneForwarded, X, Loader2, AlertCircle, 
   CheckCircle2, ShieldCheck, Sparkles, Volume2, Download, FileText, 
@@ -25,6 +26,7 @@ export const OutboundVoiceCallModal = ({
   onDiscoveryComplete = null
 }) => {
   const { t } = useLanguage();
+  const navigate = useNavigate();
 
   const [selectedCountryCode, setSelectedCountryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -34,11 +36,13 @@ export const OutboundVoiceCallModal = ({
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [callDurationSeconds, setCallDurationSeconds] = useState(0);
 
-  // Pipeline telemetry state
+  // Pipeline telemetry & workspace creation state
   const [pipelineTelemetry, setPipelineTelemetry] = useState(null);
   const [activeTab, setActiveTab] = useState('document'); // 'document' | 'transcript' | 'insights' | 'telemetry'
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [workspaceCreationStep, setWorkspaceCreationStep] = useState('');
 
   // Completed Discovery Data
   const [discoveryData, setDiscoveryData] = useState(null);
@@ -159,6 +163,39 @@ export const OutboundVoiceCallModal = ({
       navigator.clipboard.writeText(md);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleContinueWithSolutionBuilder = async () => {
+    if (!activeSessionId || creatingWorkspace) return;
+    setCreatingWorkspace(true);
+    setWorkspaceCreationStep('Analyzing specification document with Gemini...');
+
+    try {
+      setTimeout(() => setWorkspaceCreationStep('Creating new Solution Workspace & context...'), 400);
+      setTimeout(() => setWorkspaceCreationStep('Attaching specification document & lifecycle entities...'), 900);
+
+      const res = await api.createWorkspaceFromVoiceSession({
+        sessionId: activeSessionId,
+        sourceWorkspaceId: workspaceId
+      });
+
+      if (res && res.success && res.workspace) {
+        setWorkspaceCreationStep('Opening new Solution Workspace...');
+        if (typeof onDiscoveryComplete === 'function') {
+          onDiscoveryComplete(res);
+        }
+        onClose();
+        navigate(`/app/workspaces/${res.workspace.id}`);
+      } else {
+        throw new Error(res?.error || 'Failed to initialize solution workspace.');
+      }
+    } catch (err) {
+      console.error('[VoiceModal] Failed to create workspace from voice session:', err);
+      setErrorMessage(err?.data?.error || err?.message || 'Unable to create Solution Workspace. Please try again.');
+    } finally {
+      setCreatingWorkspace(false);
+      setWorkspaceCreationStep('');
     }
   };
 
@@ -807,10 +844,11 @@ export const OutboundVoiceCallModal = ({
 
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleContinueWithSolutionBuilder}
+                  disabled={creatingWorkspace}
                   className="btn btn-primary"
                   style={{
-                    padding: '8px 18px',
+                    padding: '8px 20px',
                     fontSize: '0.82rem',
                     fontWeight: 600,
                     display: 'inline-flex',
@@ -818,11 +856,22 @@ export const OutboundVoiceCallModal = ({
                     gap: 6,
                     backgroundColor: 'var(--accent-amber, #D97706)',
                     borderColor: 'var(--accent-amber, #D97706)',
-                    color: '#FFFFFF'
+                    color: '#FFFFFF',
+                    opacity: creatingWorkspace ? 0.85 : 1,
+                    cursor: creatingWorkspace ? 'wait' : 'pointer'
                   }}
                 >
-                  <span>Continue in Workspace</span>
-                  <ArrowRight size={14} />
+                  {creatingWorkspace ? (
+                    <>
+                      <Loader2 size={14} className="spin" />
+                      <span>{workspaceCreationStep || 'Creating Solution Workspace...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Continue with Solution Builder</span>
+                      <ArrowRight size={14} />
+                    </>
+                  )}
                 </button>
               </div>
             </div>
