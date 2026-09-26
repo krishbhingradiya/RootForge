@@ -256,8 +256,8 @@ export class TwilioVoiceService {
       throw err;
     }
 
-    const webhookUrl = `${this.webhookBaseUrl}/api/voice/incoming`;
-    const statusCallbackUrl = `${this.webhookBaseUrl}/api/voice/status`;
+    const webhookUrl = `${this.webhookBaseUrl}/api/voice/incoming?sessionId=${encodeURIComponent(session.id)}`;
+    const statusCallbackUrl = `${this.webhookBaseUrl}/api/voice/status?sessionId=${encodeURIComponent(session.id)}`;
 
     try {
       await this.updateSession(session.id, {

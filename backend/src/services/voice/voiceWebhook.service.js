@@ -22,18 +22,38 @@ export class VoiceWebhookService {
   }
 
   /**
-   * Helper to get or initialize session state
+   * Helper to get or initialize shared session state across all aliases (sessionId, callSid, toPhone, fromPhone)
    */
-  getSessionState(sessionKey) {
-    if (!sessionStates.has(sessionKey)) {
-      sessionStates.set(sessionKey, {
+  resolveSessionState({ sessionId = null, callSid = null, toPhone = null, fromPhone = null }) {
+    const keys = [sessionId, callSid, toPhone, fromPhone].filter(Boolean);
+    let state = null;
+    for (const k of keys) {
+      if (sessionStates.has(k)) {
+        state = sessionStates.get(k);
+        break;
+      }
+    }
+
+    if (!state) {
+      state = {
         conversation: [],
         requirements: {},
         lastDetectedLanguage: 'en-IN',
         generatedDoc: null
-      });
+      };
     }
-    return sessionStates.get(sessionKey);
+
+    // Alias ALL active keys to the same state reference
+    for (const k of keys) {
+      sessionStates.set(k, state);
+    }
+
+    return state;
+  }
+
+  getSessionState(sessionKey) {
+    if (!sessionKey) return this.resolveSessionState({});
+    return this.resolveSessionState({ sessionId: sessionKey });
   }
 
   /**
@@ -42,8 +62,9 @@ export class VoiceWebhookService {
    */
   buildListeningTwiML(message, options = {}) {
     const baseUrl = this.getBaseUrl();
-    const actionUrl = options.actionUrl || `${baseUrl}/api/voice/process-speech`;
-    const redirectUrl = options.redirectUrl || `${baseUrl}/api/voice/incoming`;
+    const sessionIdParam = options.sessionId ? `?sessionId=${encodeURIComponent(options.sessionId)}` : '';
+    const actionUrl = options.actionUrl || `${baseUrl}/api/voice/process-speech${sessionIdParam}`;
+    const redirectUrl = options.redirectUrl || `${baseUrl}/api/voice/incoming${sessionIdParam}`;
     const timeout = options.timeout || 8;
     const speechTimeout = options.speechTimeout || 'auto';
     const language = options.language || 'en-IN';
@@ -101,8 +122,19 @@ export class VoiceWebhookService {
     console.log('[VoiceAgent] Call started');
     const initialGreeting = 'Hello! Welcome to RootForge AI Business Consultant. I am here to understand your project requirements and design your system. Please tell me about your business idea or the main problem you want to solve.';
 
-    const sessionKey = sessionId || callSid || toPhone || 'default';
-    const state = this.getSessionState(sessionKey);
+    let session = null;
+    try {
+      if (sessionId) session = await twilioVoiceService.getSession(sessionId);
+      if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
+      if (!session && toPhone) session = await twilioVoiceService.getSession(toPhone);
+    } catch {}
+
+    const effectiveSessionId = session?.id || sessionId;
+    const state = this.resolveSessionState({
+      sessionId: effectiveSessionId,
+      callSid,
+      toPhone
+    });
 
     state.conversation = [
       {
@@ -117,11 +149,6 @@ export class VoiceWebhookService {
     // Update DB status asynchronously
     (async () => {
       try {
-        let session = null;
-        if (sessionId) session = await twilioVoiceService.getSession(sessionId);
-        if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
-        if (!session && toPhone) session = await twilioVoiceService.getSession(toPhone);
-
         if (session) {
           await twilioVoiceService.updateSession(session.id, {
             twilioCallSid: callSid || session.twilioCallSid,
@@ -134,7 +161,11 @@ export class VoiceWebhookService {
       }
     })();
 
-    return this.buildListeningTwiML(initialGreeting, { language: 'en-IN', voice: 'Polly.Aditi' });
+    return this.buildListeningTwiML(initialGreeting, {
+      language: 'en-IN',
+      voice: 'Polly.Aditi',
+      sessionId: effectiveSessionId
+    });
   }
 
   /**
@@ -144,16 +175,22 @@ export class VoiceWebhookService {
     console.log('[VoiceAgent] Speech detected');
     console.log(`[VoiceAgent] Twilio stream CallSid: ${callSid || 'UNKNOWN'}`);
 
-    const sessionKey = sessionId || callSid || from || 'default';
-    const state = this.getSessionState(sessionKey);
-
     // Retrieve active session record from DB/memory
     let session = null;
     try {
       if (sessionId) session = await twilioVoiceService.getSession(sessionId);
       if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
+      if (!session && to) session = await twilioVoiceService.getSession(to);
       if (!session && from) session = await twilioVoiceService.getSession(from);
     } catch {}
+
+    const effectiveSessionId = session?.id || sessionId;
+    const state = this.resolveSessionState({
+      sessionId: effectiveSessionId,
+      callSid,
+      toPhone: to,
+      fromPhone: from
+    });
 
     // Handle silence / no speech detected
     if (!speechResult || !speechResult.trim()) {
@@ -166,7 +203,8 @@ export class VoiceWebhookService {
 
       return this.buildListeningTwiML(silenceMsg, {
         language: state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN',
-        voice: 'Polly.Aditi'
+        voice: 'Polly.Aditi',
+        sessionId: effectiveSessionId
       });
     }
 
@@ -357,7 +395,8 @@ export class VoiceWebhookService {
     const twilioLang = state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN';
     return this.buildListeningTwiML(localizedQuestion, {
       language: twilioLang,
-      voice: 'Polly.Aditi'
+      voice: 'Polly.Aditi',
+      sessionId: effectiveSessionId
     });
   }
 
