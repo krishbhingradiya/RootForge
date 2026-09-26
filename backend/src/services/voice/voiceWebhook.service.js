@@ -42,8 +42,8 @@ export class VoiceWebhookService {
    */
   buildListeningTwiML(message, options = {}) {
     const baseUrl = this.getBaseUrl();
-    const actionUrl = options.actionUrl || `${baseUrl}/api/voice/process-speech`;
-    const redirectUrl = options.redirectUrl || `${baseUrl}/api/voice/incoming`;
+    const actionUrl = options.actionUrl || `${baseUrl}/api/voice/speech`;
+    const redirectUrl = options.redirectUrl || `${baseUrl}/api/voice/twiml`;
     const timeout = options.timeout || 8;
     const speechTimeout = options.speechTimeout || 'auto';
     const language = options.language || 'en-IN';

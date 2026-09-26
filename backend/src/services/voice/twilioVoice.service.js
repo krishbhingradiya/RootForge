@@ -505,7 +505,7 @@ export class TwilioVoiceService {
       throw err;
     }
 
-    const webhookUrl = `${this.webhookBaseUrl}/api/voice/incoming`;
+    const webhookUrl = `${this.webhookBaseUrl}/api/voice/twiml`;
     const statusCallbackUrl = `${this.webhookBaseUrl}/api/voice/status`;
 
     try {
@@ -514,7 +514,7 @@ export class TwilioVoiceService {
         startedAt: new Date()
       });
 
-      console.log(`[TwilioVoiceService] Twilio Answer URL: ${webhookUrl}`);
+      console.log(`[TwilioVoiceService] Twilio TwiML URL: ${webhookUrl}`);
 
       /**
        * TWILIO PARAMETERS CONFIGURATION:

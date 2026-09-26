@@ -167,18 +167,38 @@ router.post('/call', optionalAuth, rateLimitVoiceCalls, async (req, res) => {
 });
 
 /**
- * POST /api/voice/incoming & POST /api/voice/answer
+ * Structured logger for incoming Twilio webhooks (Requirement 15)
+ */
+const logTwilioWebhook = (req, endpoint) => {
+  const method = req.method;
+  const path = req.originalUrl || req.baseUrl + req.path;
+  const callSid = req.body?.CallSid || req.query?.CallSid || 'N/A';
+  const from = req.body?.From || req.query?.From || 'N/A';
+  const to = req.body?.To || req.query?.To || 'N/A';
+  const callStatus = req.body?.CallStatus || req.query?.CallStatus || 'N/A';
+
+  console.log('----------------------------------------');
+  console.log(`[TWILIO WEBHOOK] Method: ${method} | Path: ${path}`);
+  console.log(`[TWILIO WEBHOOK] Endpoint: ${endpoint}`);
+  console.log(`[TWILIO WEBHOOK] CallSid: ${callSid}`);
+  console.log(`[TWILIO WEBHOOK] From: ${from}`);
+  console.log(`[TWILIO WEBHOOK] To: ${to}`);
+  console.log(`[TWILIO WEBHOOK] CallStatus: ${callStatus}`);
+  console.log('[TWILIO WEBHOOK] Returning TwiML');
+  console.log('----------------------------------------');
+};
+
+/**
+ * POST/GET /api/voice/twiml, /api/voice/incoming, /api/voice/answer
  * Twilio Voice Answer Webhook: Executed immediately when user answers the phone
  * Returns immediate, valid TwiML with zero blocking external dependencies.
  */
 const handleIncomingTwiML = async (req, res) => {
-  const callSid = req.body.CallSid || req.query.CallSid || 'UNKNOWN_CALL_SID';
-  const sessionId = req.query.sessionId || req.body.sessionId || null;
-  const toPhone = req.body.To || null;
+  logTwilioWebhook(req, 'twiml-greeting');
 
-  console.log('[TwilioVoiceWebhook] Request received');
-  console.log(`[TwilioVoiceWebhook] CallSid: ${callSid}`);
-  console.log('[TwilioVoiceWebhook] Returning TwiML');
+  const callSid = req.body?.CallSid || req.query?.CallSid || 'UNKNOWN_CALL_SID';
+  const sessionId = req.query?.sessionId || req.body?.sessionId || null;
+  const toPhone = req.body?.To || null;
 
   try {
     const twiml = await voiceWebhookService.generateIncomingTwiML({
@@ -187,37 +207,43 @@ const handleIncomingTwiML = async (req, res) => {
       toPhone
     });
 
+    res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.type('text/xml');
-    res.send(twiml);
-    console.log('[TwilioVoiceWebhook] TwiML response sent');
+    res.status(200).send(twiml);
   } catch (err) {
-    console.error(`[TwilioVoiceWebhook] ERROR: ${err.message}`);
+    console.error('[TWILIO TWIML ERROR] Failed to generate greeting TwiML:', err.message);
     // Guaranteed fallback TwiML so Twilio never receives an error
-    res.type('text/xml');
-    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+    const fallbackTwiML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aditi" language="en-IN">Hello! Welcome to RootForge AI Business Consultant. I am ready to understand your business idea.</Say>
-</Response>`);
-    console.log('[TwilioVoiceWebhook] TwiML response sent');
+  <Say voice="Polly.Aditi" language="en-IN">Hello! Welcome to RootForge AI Business Consultant. Please describe your project idea or the business problem you want to solve.</Say>
+</Response>`;
+    res.setHeader('Content-Type', 'text/xml; charset=utf-8');
+    res.type('text/xml');
+    res.status(200).send(fallbackTwiML);
   }
 };
 
+// Register canonical /twiml endpoint along with /incoming and /answer aliases
+router.post('/twiml', validateTwilioSignatureSafe, handleIncomingTwiML);
+router.get('/twiml', handleIncomingTwiML);
 router.post('/incoming', validateTwilioSignatureSafe, handleIncomingTwiML);
 router.get('/incoming', handleIncomingTwiML);
 router.post('/answer', validateTwilioSignatureSafe, handleIncomingTwiML);
 router.get('/answer', handleIncomingTwiML);
 
 /**
- * POST /api/voice/process-speech & GET /api/voice/process-speech
+ * POST/GET /api/voice/speech & /api/voice/process-speech
  * Twilio Gather Webhook: Invoked when user speaks into the call
  */
 const handleProcessSpeech = async (req, res) => {
-  const speechResult = req.body.SpeechResult || req.query.SpeechResult || req.body.speechResult || '';
-  const confidence = parseFloat(req.body.Confidence || req.query.Confidence || '1');
-  const callSid = req.body.CallSid || req.query.CallSid || null;
-  const from = req.body.From || req.query.From || null;
-  const to = req.body.To || req.query.To || null;
-  const sessionId = req.query.sessionId || req.body.sessionId || null;
+  logTwilioWebhook(req, 'speech-gather');
+
+  const speechResult = req.body?.SpeechResult || req.query?.SpeechResult || req.body?.speechResult || '';
+  const confidence = parseFloat(req.body?.Confidence || req.query?.Confidence || '1');
+  const callSid = req.body?.CallSid || req.query?.CallSid || null;
+  const from = req.body?.From || req.query?.From || null;
+  const to = req.body?.To || req.query?.To || null;
+  const sessionId = req.query?.sessionId || req.body?.sessionId || null;
 
   try {
     const twiml = await voiceWebhookService.processSpeech({
@@ -229,30 +255,37 @@ const handleProcessSpeech = async (req, res) => {
       sessionId
     });
 
+    res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.type('text/xml');
-    res.send(twiml);
+    res.status(200).send(twiml);
   } catch (err) {
-    console.error(`[TwilioVoiceWebhook] ERROR processing speech: ${err.message}`);
+    console.error(`[TWILIO TWIML ERROR] Error processing speech: ${err.message}`);
     const fallbackTwiML = voiceWebhookService.buildListeningTwiML('I am ready to help you. Please tell me more about your requirements.');
+    res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.type('text/xml');
-    res.send(fallbackTwiML);
+    res.status(200).send(fallbackTwiML);
   }
 };
 
+// Register canonical /speech endpoint along with /process-speech alias
+router.post('/speech', validateTwilioSignatureSafe, handleProcessSpeech);
+router.get('/speech', handleProcessSpeech);
 router.post('/process-speech', validateTwilioSignatureSafe, handleProcessSpeech);
 router.get('/process-speech', handleProcessSpeech);
 
 /**
- * POST /api/voice/status
+ * POST/GET /api/voice/status
  * Twilio Call Status Callback Webhook
  */
-router.post('/status', validateTwilioSignatureSafe, async (req, res) => {
+const handleCallStatus = async (req, res) => {
+  logTwilioWebhook(req, 'call-status');
+
   try {
-    const callSid = req.body.CallSid;
-    const callStatus = req.body.CallStatus;
-    const duration = parseInt(req.body.CallDuration || '0', 10);
-    const error = req.body.ErrorMessage || null;
-    const sessionId = req.query.sessionId || req.body.sessionId;
+    const callSid = req.body?.CallSid || req.query?.CallSid;
+    const callStatus = req.body?.CallStatus || req.query?.CallStatus;
+    const duration = parseInt(req.body?.CallDuration || req.query?.CallDuration || '0', 10);
+    const error = req.body?.ErrorMessage || req.query?.ErrorMessage || null;
+    const sessionId = req.query?.sessionId || req.body?.sessionId;
 
     await voiceWebhookService.handleStatusCallback({
       callSid,
@@ -262,14 +295,19 @@ router.post('/status', validateTwilioSignatureSafe, async (req, res) => {
       sessionId
     });
 
+    res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.type('text/xml');
-    res.send('<Response />');
+    res.status(200).send('<Response />');
   } catch (err) {
-    console.warn('[VoiceRoute] Error in status callback:', err.message);
+    console.warn('[TWILIO TWIML ERROR] Error in status callback:', err.message);
+    res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.type('text/xml');
-    res.send('<Response />');
+    res.status(200).send('<Response />');
   }
-});
+};
+
+router.post('/status', validateTwilioSignatureSafe, handleCallStatus);
+router.get('/status', handleCallStatus);
 
 /**
  * Helper to fetch session, messages, and document for route handlers
