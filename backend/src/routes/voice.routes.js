@@ -16,6 +16,8 @@
  */
 
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import twilio from 'twilio';
 import { twilioVoiceService } from '../services/voice/twilioVoice.service.js';
 import { voiceWebhookService } from '../services/voice/voiceWebhook.service.js';
@@ -270,14 +272,65 @@ router.post('/status', validateTwilioSignatureSafe, async (req, res) => {
 });
 
 /**
- * GET /api/voice/session/:id
- * Fetches status of an active or recent voice session
+ * Helper to fetch session, messages, and document for route handlers
  */
-router.get('/session/:id', optionalAuth, async (req, res) => {
-  try {
-    const session = await twilioVoiceService.getSession(req.params.id);
+const fetchSessionData = async (idOrSessionId) => {
+  const session = await twilioVoiceService.getSession(idOrSessionId);
+  if (!session) return null;
 
-    if (!session) {
+  const messages = await twilioVoiceService.getConversationMessages(session.id);
+  const docMeta = await twilioVoiceService.getConversationDocument(session.id);
+  const stateDetails = await voiceWebhookService.getSessionDetails(session.id);
+
+  let markdownContent = '';
+  let fileName = docMeta?.fileName || `voice-discovery-${session.id}.md`;
+
+  if (docMeta?.storagePath) {
+    try {
+      const fullPath = path.resolve(process.cwd(), docMeta.storagePath);
+      if (fs.existsSync(fullPath)) {
+        markdownContent = fs.readFileSync(fullPath, 'utf8');
+      }
+    } catch {}
+  }
+
+  // If markdown document not yet created on disk, generate it deterministically
+  if (!markdownContent && messages.length > 0) {
+    try {
+      const generated = await aiVoiceConsultantService.generateAndSaveVoiceDiscoveryMarkdown({
+        session,
+        messages,
+        requirements: stateDetails?.requirements || {},
+        initialRequirement: stateDetails?.requirements?.business_problem || messages.find(m => m.speaker === 'user')?.text || '',
+        status: session.status === 'completed' ? 'Completed' : 'Incomplete'
+      });
+      markdownContent = generated.markdownContent;
+      fileName = generated.fileName;
+    } catch (err) {
+      console.warn('[VoiceRoute] Markdown generation notice:', err.message);
+    }
+  }
+
+  return {
+    session,
+    messages,
+    docMeta,
+    stateDetails,
+    markdownContent,
+    fileName
+  };
+};
+
+/**
+ * GET /api/voice/session/:id & GET /api/voice/sessions/:sessionId
+ * Fetches status, metadata, and turn count of an active or past voice session
+ */
+const handleGetSession = async (req, res) => {
+  try {
+    const sessionId = req.params.id || req.params.sessionId;
+    const sessionData = await fetchSessionData(sessionId);
+
+    if (!sessionData) {
       return res.status(404).json({
         success: false,
         errorCode: 'SESSION_NOT_FOUND',
@@ -285,11 +338,12 @@ router.get('/session/:id', optionalAuth, async (req, res) => {
       });
     }
 
-    const state = voiceWebhookService.getSessionDetails(session.id) ||
-      (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
+    const { session, messages, docMeta, stateDetails } = sessionData;
+    const isCompleted = session.status === 'completed';
 
     res.json({
       success: true,
+      sessionId: session.id,
       session: {
         id: session.id,
         status: session.status,
@@ -299,10 +353,14 @@ router.get('/session/:id', optionalAuth, async (req, res) => {
         endedAt: session.endedAt,
         errorMessage: session.errorMessage,
         createdAt: session.createdAt,
-        turnCount: state?.conversation ? state.conversation.length : 0,
-        lastLanguage: state?.lastDetectedLanguage || 'en-IN',
-        hasGeneratedDoc: Boolean(state?.generatedDoc)
-      }
+        completionStatus: isCompleted ? 'completed' : (session.status === 'failed' || session.status === 'cancelled' ? 'incomplete' : 'in-progress'),
+        turnCount: messages.length,
+        userTurns: messages.filter(m => m.speaker === 'user').length,
+        assistantTurns: messages.filter(m => m.speaker === 'assistant').length,
+        lastLanguage: stateDetails?.lastDetectedLanguage || messages[messages.length - 1]?.language || 'en-IN',
+        hasGeneratedDoc: Boolean(docMeta || sessionData.markdownContent)
+      },
+      messages
     });
   } catch (err) {
     res.status(500).json({
@@ -311,17 +369,21 @@ router.get('/session/:id', optionalAuth, async (req, res) => {
       message: 'Failed to retrieve voice session status.'
     });
   }
-});
+};
+
+router.get('/session/:id', optionalAuth, handleGetSession);
+router.get('/sessions/:sessionId', optionalAuth, handleGetSession);
 
 /**
- * GET /api/voice/session/:id/requirements
- * Fetches discovered structured requirements, conversation transcript, and generated document
+ * GET /api/voice/session/:id/transcript & GET /api/voice/sessions/:sessionId/transcript
+ * Returns the conversation transcript in structured chronological format and Q&A mapping
  */
-router.get('/session/:id/requirements', optionalAuth, async (req, res) => {
+const handleGetTranscript = async (req, res) => {
   try {
-    const session = await twilioVoiceService.getSession(req.params.id);
+    const sessionId = req.params.id || req.params.sessionId;
+    const sessionData = await fetchSessionData(sessionId);
 
-    if (!session) {
+    if (!sessionData) {
       return res.status(404).json({
         success: false,
         errorCode: 'SESSION_NOT_FOUND',
@@ -329,34 +391,88 @@ router.get('/session/:id/requirements', optionalAuth, async (req, res) => {
       });
     }
 
-    const state = voiceWebhookService.getSessionDetails(session.id) ||
-      (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
+    const { session, messages } = sessionData;
 
-    // If generatedDoc is not yet created, generate it on-the-fly
-    let generatedDoc = state?.generatedDoc || null;
-    if (!generatedDoc && state?.conversation && state.conversation.length > 0) {
-      try {
-        generatedDoc = await aiVoiceConsultantService.generateProjectRequirementsDocument({
-          session,
-          conversation: state.conversation,
-          requirements: state.requirements || {}
-        });
-        if (state) state.generatedDoc = generatedDoc;
-      } catch (err) {
-        console.warn('[VoiceRoutes] On-demand markdown generation warning:', err.message);
-      }
+    // Build Q&A mapping
+    const q1A = messages.find(m => m.speaker === 'assistant' && m.questionNumber === 1);
+    const q1U = messages.find(m => m.speaker === 'user' && m.questionNumber === 1);
+    const q2A = messages.find(m => m.speaker === 'assistant' && m.questionNumber === 2);
+    const q2U = messages.find(m => m.speaker === 'user' && m.questionNumber === 2);
+    const q3A = messages.find(m => m.speaker === 'assistant' && m.questionNumber === 3);
+    const q3U = messages.find(m => m.speaker === 'user' && m.questionNumber === 3);
+
+    const questionsAndAnswers = [
+      { questionNumber: 1, question: q1A?.text || null, answer: q1U?.text || null, englishAnswer: q1U?.englishText || null },
+      { questionNumber: 2, question: q2A?.text || null, answer: q2U?.text || null, englishAnswer: q2U?.englishText || null },
+      { questionNumber: 3, question: q3A?.text || null, answer: q3U?.text || null, englishAnswer: q3U?.englishText || null }
+    ].filter(qa => qa.question || qa.answer);
+
+    res.json({
+      success: true,
+      sessionId: session.id,
+      callSid: session.twilioCallSid,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      status: session.status,
+      totalTurns: messages.length,
+      questionsAndAnswers,
+      messages: messages.map(m => ({
+        sequence: m.sequence,
+        speaker: m.speaker,
+        text: m.text,
+        englishText: m.englishText,
+        language: m.language,
+        questionNumber: m.questionNumber,
+        timestamp: m.timestamp
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      errorCode: 'TRANSCRIPT_FETCH_ERROR',
+      message: 'Failed to retrieve transcript.'
+    });
+  }
+};
+
+router.get('/session/:id/transcript', optionalAuth, handleGetTranscript);
+router.get('/sessions/:sessionId/transcript', optionalAuth, handleGetTranscript);
+
+/**
+ * GET /api/voice/session/:id/requirements & GET /api/voice/sessions/:sessionId/requirements
+ * Fetches discovered structured requirements, conversation transcript, and generated document
+ */
+const handleGetRequirements = async (req, res) => {
+  try {
+    const sessionId = req.params.id || req.params.sessionId;
+    const sessionData = await fetchSessionData(sessionId);
+
+    if (!sessionData) {
+      return res.status(404).json({
+        success: false,
+        errorCode: 'SESSION_NOT_FOUND',
+        message: 'Voice session not found.'
+      });
     }
+
+    const { session, messages, docMeta, stateDetails, markdownContent, fileName } = sessionData;
 
     res.json({
       success: true,
       sessionId: session.id,
       status: session.status,
-      conversation: state?.conversation || [],
-      requirements: state?.requirements || {},
-      generatedDoc: generatedDoc || null,
-      markdownContent: generatedDoc?.markdownContent || '',
-      fileName: generatedDoc?.fileName || `project-requirements-${session.id}.md`,
-      detectedLanguage: state?.lastDetectedLanguage || 'en-IN'
+      conversation: messages,
+      messages: messages,
+      requirements: stateDetails?.requirements || {},
+      generatedDoc: {
+        fileName,
+        storagePath: docMeta?.storagePath || `uploads/voice-discovery/${fileName}`,
+        fileSize: docMeta?.fileSize || Buffer.byteLength(markdownContent || '', 'utf8'),
+        markdownContent
+      },
+      markdownContent: markdownContent || '',
+      fileName: fileName || `voice-discovery-${session.id}.md`,
+      detectedLanguage: stateDetails?.lastDetectedLanguage || 'en-IN'
     });
   } catch (err) {
     res.status(500).json({
@@ -365,60 +481,46 @@ router.get('/session/:id/requirements', optionalAuth, async (req, res) => {
       message: 'Failed to retrieve voice session requirements.'
     });
   }
-});
+};
+
+router.get('/session/:id/requirements', optionalAuth, handleGetRequirements);
+router.get('/sessions/:sessionId/requirements', optionalAuth, handleGetRequirements);
 
 /**
- * GET /api/voice/session/:id/markdown
+ * GET /api/voice/session/:id/markdown & GET /api/voice/sessions/:sessionId/markdown
  * Returns the raw or downloadable markdown document
  */
-router.get('/session/:id/markdown', optionalAuth, async (req, res) => {
+const handleGetMarkdown = async (req, res) => {
   try {
-    const session = await twilioVoiceService.getSession(req.params.id);
+    const sessionId = req.params.id || req.params.sessionId;
+    const sessionData = await fetchSessionData(sessionId);
 
-    if (!session) {
+    if (!sessionData) {
       return res.status(404).send('# Session Not Found\nThe requested voice session does not exist.');
     }
 
-    const state = voiceWebhookService.getSessionDetails(session.id) ||
-      (session.twilioCallSid ? voiceWebhookService.getSessionDetails(session.twilioCallSid) : null);
+    const { session, markdownContent, fileName } = sessionData;
+    const finalFileName = fileName || `voice-discovery-${session.id}.md`;
 
-    let markdown = state?.generatedDoc?.markdownContent;
-    let fileName = state?.generatedDoc?.fileName;
-
-    // If not generated, synthesize immediately
-    if (!markdown) {
-      try {
-        const docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
-          session,
-          conversation: state?.conversation || [],
-          requirements: state?.requirements || {}
-        });
-        if (state) state.generatedDoc = docResult;
-        markdown = docResult.markdownContent;
-        fileName = docResult.fileName;
-      } catch (err) {
-        markdown = `# Project Requirements Document\n\n## 1. Project Overview\nVoice discovery session: ${session.id}\n\n## 2. Business Problem\nDiscovered via RootForge AI Consultant.`;
-        fileName = `project-requirements-${session.id}.md`;
-      }
-    }
-
-    const finalFileName = fileName || `project-requirements-${session.id}.md`;
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${finalFileName}"`);
-    res.send(markdown);
+    res.send(markdownContent || '# No Conversation Recorded\n\nThis session contains no conversation turns.');
   } catch (err) {
     res.status(500).send('# Error\nFailed to generate or retrieve markdown document.');
   }
-});
+};
 
+router.get('/session/:id/markdown', optionalAuth, handleGetMarkdown);
+router.get('/sessions/:sessionId/markdown', optionalAuth, handleGetMarkdown);
 
 /**
- * POST /api/voice/session/:id/cancel
+ * POST /api/voice/session/:id/cancel & POST /api/voice/sessions/:sessionId/cancel
  * Cancels / hangs up an active voice call
  */
-router.post('/session/:id/cancel', optionalAuth, async (req, res) => {
+const handleCancelSession = async (req, res) => {
   try {
-    const result = await twilioVoiceService.cancelCall(req.params.id);
+    const sessionId = req.params.id || req.params.sessionId;
+    const result = await twilioVoiceService.cancelCall(sessionId);
     res.json(result);
   } catch (err) {
     const statusCode = err.statusCode || 500;
@@ -428,7 +530,10 @@ router.post('/session/:id/cancel', optionalAuth, async (req, res) => {
       message: err.message || 'Failed to cancel voice call.'
     });
   }
-});
+};
+
+router.post('/session/:id/cancel', optionalAuth, handleCancelSession);
+router.post('/sessions/:sessionId/cancel', optionalAuth, handleCancelSession);
 
 /**
  * GET /api/voice/config
@@ -442,4 +547,5 @@ router.get('/config', (req, res) => {
 });
 
 export default router;
+
 

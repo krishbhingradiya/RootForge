@@ -2,7 +2,7 @@ import twilio from 'twilio';
 import { twilioVoiceService } from './twilioVoice.service.js';
 import { aiVoiceConsultantService } from './aiVoiceConsultant.service.js';
 
-// In-Memory conversation state cache: sessionKey -> { conversation: [], requirements: {}, lastDetectedLanguage: 'en-IN', generatedDoc: null }
+// In-Memory conversation state cache: sessionKey -> { initialRequirement: '', requirements: {}, lastDetectedLanguage: 'en-IN', generatedDoc: null }
 const sessionStates = new Map();
 
 export class VoiceWebhookService {
@@ -27,7 +27,7 @@ export class VoiceWebhookService {
   getSessionState(sessionKey) {
     if (!sessionStates.has(sessionKey)) {
       sessionStates.set(sessionKey, {
-        conversation: [],
+        initialRequirement: '',
         requirements: {},
         lastDetectedLanguage: 'en-IN',
         generatedDoc: null
@@ -104,35 +104,35 @@ export class VoiceWebhookService {
     const sessionKey = sessionId || callSid || toPhone || 'default';
     const state = this.getSessionState(sessionKey);
 
-    state.conversation = [
-      {
-        role: 'assistant',
-        text: initialGreeting,
-        englishText: initialGreeting,
-        language: 'en-IN',
-        timestamp: new Date().toISOString()
-      }
-    ];
+    // Find and update session in DB
+    let session = null;
+    try {
+      if (sessionId) session = await twilioVoiceService.getSession(sessionId);
+      if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
+      if (!session && toPhone) session = await twilioVoiceService.getSession(toPhone);
 
-    // Update DB status asynchronously
-    (async () => {
-      try {
-        let session = null;
-        if (sessionId) session = await twilioVoiceService.getSession(sessionId);
-        if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
-        if (!session && toPhone) session = await twilioVoiceService.getSession(toPhone);
+      if (session) {
+        await twilioVoiceService.updateSession(session.id, {
+          twilioCallSid: callSid || session.twilioCallSid,
+          status: 'active',
+          connectedAt: new Date()
+        });
 
-        if (session) {
-          await twilioVoiceService.updateSession(session.id, {
-            twilioCallSid: callSid || session.twilioCallSid,
-            status: 'active',
-            connectedAt: new Date()
-          });
-        }
-      } catch (err) {
-        console.warn('[VoiceWebhook] Non-blocking session update notice:', err.message);
+        // 1. Save Greeting Assistant Message turn with sequence 1
+        await twilioVoiceService.saveConversationMessage({
+          sessionId: session.id,
+          speaker: 'assistant',
+          text: initialGreeting,
+          englishText: initialGreeting,
+          language: 'en-IN',
+          questionNumber: 0,
+          turnId: `assistant_${session.id}_greeting`,
+          sequence: 1
+        });
       }
-    })();
+    } catch (err) {
+      console.warn('[VoiceWebhook] Initial greeting save notice:', err.message);
+    }
 
     return this.buildListeningTwiML(initialGreeting, { language: 'en-IN', voice: 'Polly.Aditi' });
   }
@@ -154,6 +154,8 @@ export class VoiceWebhookService {
       if (!session && callSid) session = await twilioVoiceService.getSession(callSid);
       if (!session && from) session = await twilioVoiceService.getSession(from);
     } catch {}
+
+    const currentSessionId = session?.id || sessionKey;
 
     // Handle silence / no speech detected
     if (!speechResult || !speechResult.trim()) {
@@ -183,43 +185,68 @@ export class VoiceWebhookService {
     console.log(`[VoiceAgent] Language detected: ${state.lastDetectedLanguage}`);
     console.log(`[VoiceAgent] English normalization completed: "${normalized.englishTranscript}"`);
 
-    // Append user turn to conversation history
-    state.conversation.push({
-      role: 'user',
+    // Retrieve previous messages to determine current question stage
+    const previousMessages = await twilioVoiceService.getConversationMessages(currentSessionId);
+    const existingUserMessages = previousMessages.filter(m => m.speaker === 'user');
+    const userTurnCount = existingUserMessages.length + 1; // 1 = Initial requirement, 2 = Answer 1, 3 = Answer 2, 4 = Answer 3
+
+    let questionNumberForUserTurn = 0;
+    if (userTurnCount === 1) {
+      questionNumberForUserTurn = 0; // Initial Project Requirement
+      state.initialRequirement = normalized.englishTranscript || normalized.originalTranscript;
+    } else if (userTurnCount === 2) {
+      questionNumberForUserTurn = 1; // Answer 1
+    } else if (userTurnCount === 3) {
+      questionNumberForUserTurn = 2; // Answer 2
+    } else if (userTurnCount >= 4) {
+      questionNumberForUserTurn = 3; // Answer 3
+    }
+
+    // 2. Save USER Message Turn
+    const userTurnId = `user_${currentSessionId}_${userTurnCount}`;
+    await twilioVoiceService.saveConversationMessage({
+      sessionId: currentSessionId,
+      speaker: 'user',
       text: normalized.originalTranscript,
       englishText: normalized.englishTranscript,
       language: state.lastDetectedLanguage,
-      confidence: confidence,
-      timestamp: new Date().toISOString()
+      questionNumber: questionNumberForUserTurn,
+      turnId: userTurnId
     });
 
     // Check for explicit goodbye / call end request
     const lowerEnglish = normalized.englishTranscript.toLowerCase();
     const isGoodbye = /\b(bye|goodbye|exit|end call|stop call|hang up|that's all|that is all|thank you bye|finish call)\b/i.test(lowerEnglish);
 
-    if (isGoodbye) {
-      console.log('[VoiceAgent] User requested call completion. Wrapping up requirements.');
+    // 3. COMPLETE DISCOVERY if user said goodbye OR if user answered Question 3 (userTurnCount >= 4)
+    if (isGoodbye || userTurnCount >= 4) {
+      console.log('[VoiceAgent] Discovery complete after all questions or user wrapup.');
       console.log('[VoiceAgent] Conversation completed');
 
-      // Generate complete 28-section requirements document
+      // Fetch all messages up to this point
+      const allMessages = await twilioVoiceService.getConversationMessages(currentSessionId);
+
+      // Synthesize requirements & generate complete deterministic Markdown document
       let docResult = null;
       try {
-        docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
+        docResult = await aiVoiceConsultantService.generateAndSaveVoiceDiscoveryMarkdown({
           session,
-          conversation: state.conversation,
-          requirements: state.requirements
+          messages: allMessages,
+          requirements: state.requirements,
+          initialRequirement: state.initialRequirement || allMessages.find(m => m.speaker === 'user')?.text || '',
+          status: 'Completed'
         });
         state.generatedDoc = docResult;
       } catch (err) {
-        console.warn('[VoiceAgent] Final markdown generation error:', err.message);
+        console.warn('[VoiceAgent] Markdown generation notice:', err.message);
       }
 
       // Final farewell in user's language
-      let farewellText = 'Thank you for discussing your project with RootForge AI. Your complete project requirements document has been generated and saved to your workspace. Goodbye!';
+      let farewellText = 'Thank you for discussing your project with RootForge AI. Your complete voice discovery conversation and project requirements document have been recorded and saved. Goodbye!';
       if (state.lastDetectedLanguage.startsWith('gu')) {
-        farewellText = 'રૂટફોર્જ એઆઈ સાથે વાત કરવા બદલ આભાર. તમારી સંપૂર્ણ રિક્વાયરમેન્ટ ફાઇલ સેવ થઈ ગઈ છે. આવજો!';
+        farewellText = 'રૂટફોર્જ એઆઈ સાથે વાત કરવા બદલ આભાર. તમારી સંપૂર્ણ વાતચીત અને રિક્વાયરમેન્ટ ફાઇલ સેવ થઈ ગઈ છે. આવજો!';
       } else if (state.lastDetectedLanguage.startsWith('hi')) {
-        farewellText = 'रूटफोर्ज एआई से बात करने के लिए धन्यवाद। आपकी पूरी आवश्यकताएं सेव कर ली गई हैं। धन्यवाद और अलविदा!';
+        farewellText = 'रूटफोर्ज एआई से बात करने के लिए धन्यवाद। आपकी बातचीत और आवश्यकताएं सुरक्षित कर ली गई हैं। धन्यवाद और अलविदा!';
       }
 
       const VoiceResponse = twilio.twiml.VoiceResponse;
@@ -233,7 +260,6 @@ export class VoiceWebhookService {
       );
       response.hangup();
 
-      // Mark session as completed in DB
       if (session) {
         (async () => {
           try {
@@ -248,26 +274,22 @@ export class VoiceWebhookService {
       return response.toString();
     }
 
-    // 2. Groq AI Business Consultant Reasoner
-    console.log('[VoiceAgent] Groq request started');
+    // 4. Formulate the EXACT Next Question (Q1, Q2, or Q3)
+    const nextQuestionNumber = userTurnCount; // If user just gave initial requirement (userTurnCount=1), next is Q1; if answered Q1 (userTurnCount=2), next is Q2; if answered Q2 (userTurnCount=3), next is Q3.
+    console.log(`[VoiceAgent] Formulating Question ${nextQuestionNumber} of 3`);
+
+    const updatedMessages = await twilioVoiceService.getConversationMessages(currentSessionId);
     let consultResult = null;
     try {
       consultResult = await aiVoiceConsultantService.consultAndFormulateQuestion({
-        conversationHistory: state.conversation,
+        conversationHistory: updatedMessages,
         currentTurnRequirements: state.requirements
       });
     } catch (err) {
-      console.warn('[VoiceAgent] Consultant reasoning error:', err.message);
-      consultResult = {
-        conversation_complete: false,
-        detected_language: state.lastDetectedLanguage,
-        next_question: 'Could you share more details about your core users and primary features?',
-        requirements: state.requirements,
-        missing_information: []
-      };
+      console.warn('[VoiceAgent] Consultant reasoning fallback:', err.message);
+      consultResult = aiVoiceConsultantService._getFallbackQuestion(updatedMessages, state.requirements);
     }
 
-    // Update accumulated requirements in state
     if (consultResult.requirements) {
       state.requirements = {
         ...state.requirements,
@@ -275,59 +297,13 @@ export class VoiceWebhookService {
       };
     }
 
-    // 3. Check if Groq evaluated conversation as complete
-    if (consultResult.conversation_complete === true) {
-      console.log('[VoiceAgent] Groq determined discovery is complete. Generating final specifications.');
-      console.log('[VoiceAgent] Conversation completed');
+    const englishQuestion = consultResult.next_question || (
+      nextQuestionNumber === 1 ? 'Who are the primary users and target audience for this platform?' :
+      nextQuestionNumber === 2 ? 'What is the main problem this platform must solve for them?' :
+      'What external systems, payment processors, or delivery integrations will you need?'
+    );
 
-      let docResult = null;
-      try {
-        docResult = await aiVoiceConsultantService.generateProjectRequirementsDocument({
-          session,
-          conversation: state.conversation,
-          requirements: state.requirements
-        });
-        state.generatedDoc = docResult;
-      } catch (err) {
-        console.warn('[VoiceAgent] Markdown generation notice:', err.message);
-      }
-
-      let completionMessage = 'I have gathered sufficient requirements to generate your architecture and solution specifications. Your requirements document is now ready in RootForge. Thank you and goodbye!';
-      if (state.lastDetectedLanguage.startsWith('gu')) {
-        completionMessage = 'મેં તમારી બધી મુખ્ય જરૂરિયાતો નોંધી લીધી છે અને તમારું રિક્વાયરમેન્ટ ડોક્યુમેન્ટ તૈયાર થઈ ગયું છે. રૂટફોર્જ વાપરવા બદલ આભાર, આવજો!';
-      } else if (state.lastDetectedLanguage.startsWith('hi')) {
-        completionMessage = 'मैंने आपकी सभी मुख्य आवश्यकताएं समझ ली हैं और आपका दस्तावेज़ तैयार हो गया है। रूटफोर्ज का उपयोग करने के लिए धन्यवाद, अलविदा!';
-      }
-
-      const VoiceResponse = twilio.twiml.VoiceResponse;
-      const response = new VoiceResponse();
-      response.say(
-        {
-          voice: 'Polly.Aditi',
-          language: state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN'
-        },
-        completionMessage
-      );
-      response.hangup();
-
-      if (session) {
-        (async () => {
-          try {
-            await twilioVoiceService.updateSession(session.id, {
-              status: 'completed',
-              endedAt: new Date()
-            });
-          } catch {}
-        })();
-      }
-
-      return response.toString();
-    }
-
-    // 4. Localize Next Question into User's Language
-    const englishQuestion = consultResult.next_question || 'What is the most critical feature your users need?';
     let localizedQuestion = englishQuestion;
-
     if (state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi')) {
       try {
         localizedQuestion = await aiVoiceConsultantService.translateText({
@@ -341,17 +317,20 @@ export class VoiceWebhookService {
       }
     }
 
-    // Append assistant counter-question to history
-    state.conversation.push({
-      role: 'assistant',
+    // 5. IMPORTANT (Requirement 2): SAVE THE EXACT SPOKEN AI TEXT BEFORE SENDING TO TTS
+    const assistantTurnId = `assistant_${currentSessionId}_q${nextQuestionNumber}`;
+    await twilioVoiceService.saveConversationMessage({
+      sessionId: currentSessionId,
+      speaker: 'assistant',
       text: localizedQuestion,
       englishText: englishQuestion,
       language: state.lastDetectedLanguage,
-      timestamp: new Date().toISOString()
+      questionNumber: nextQuestionNumber,
+      turnId: assistantTurnId
     });
 
     console.log('[VoiceAgent] TTS started');
-    console.log(`[VoiceAgent] Audio sent to Twilio: "${localizedQuestion}"`);
+    console.log(`[VoiceAgent] Spoken AI question saved and audio sent to Twilio: "${localizedQuestion}" (Question #${nextQuestionNumber})`);
     console.log('[VoiceAgent] Conversation turn completed');
 
     const twilioLang = state.lastDetectedLanguage.startsWith('gu') || state.lastDetectedLanguage.startsWith('hi') ? 'hi-IN' : 'en-IN';
@@ -364,13 +343,25 @@ export class VoiceWebhookService {
   /**
    * Retrieves conversation & requirements for a session
    */
-  getSessionDetails(sessionIdOrCallSid) {
+  async getSessionDetails(sessionIdOrCallSid) {
     if (!sessionIdOrCallSid) return null;
-    return sessionStates.get(sessionIdOrCallSid) || null;
+
+    const state = sessionStates.get(sessionIdOrCallSid) || null;
+    const session = await twilioVoiceService.getSession(sessionIdOrCallSid);
+    const messages = session?.id ? await twilioVoiceService.getConversationMessages(session.id) : (state?.conversation || []);
+    const document = session?.id ? await twilioVoiceService.getConversationDocument(session.id) : (state?.generatedDoc || null);
+
+    return {
+      session,
+      conversation: messages,
+      requirements: state?.requirements || {},
+      generatedDoc: document,
+      lastDetectedLanguage: state?.lastDetectedLanguage || 'en-IN'
+    };
   }
 
   /**
-   * Handles Twilio Status Callback events
+   * Handles Twilio Status Callback events and unexpected call termination
    */
   async handleStatusCallback({ callSid, callStatus, duration = 0, error = null, sessionId = null }) {
     console.log(`[VoiceWebhook] Twilio status callback: Call ${callSid?.slice(0, 8) || 'N/A'}... -> status: ${callStatus} (Duration: ${duration}s)`);
@@ -412,6 +403,30 @@ export class VoiceWebhookService {
 
       updates.status = mappedStatus;
       await twilioVoiceService.updateSession(session.id, updates);
+
+      // If call ended and Markdown document was not yet generated, generate incomplete/completed markdown
+      const isTerminal = ['completed', 'failed', 'cancelled'].includes(mappedStatus);
+      if (isTerminal) {
+        const existingDoc = await twilioVoiceService.getConversationDocument(session.id);
+        const messages = await twilioVoiceService.getConversationMessages(session.id);
+
+        if (!existingDoc && messages && messages.length > 0) {
+          const state = this.getSessionState(session.id);
+          const docStatus = (mappedStatus === 'completed' && messages.filter(m => m.speaker === 'user').length >= 4)
+            ? 'Completed'
+            : 'Incomplete';
+
+          console.log(`[VoiceWebhook] Generating ${docStatus} Markdown document on call termination for session ${session.id}`);
+
+          await aiVoiceConsultantService.generateAndSaveVoiceDiscoveryMarkdown({
+            session,
+            messages,
+            requirements: state?.requirements || {},
+            initialRequirement: state?.initialRequirement || messages.find(m => m.speaker === 'user')?.text || '',
+            status: docStatus
+          });
+        }
+      }
     } catch (err) {
       console.warn('[VoiceWebhook] Status callback update error:', err.message);
     }
@@ -419,4 +434,5 @@ export class VoiceWebhookService {
 }
 
 export const voiceWebhookService = new VoiceWebhookService();
+
 

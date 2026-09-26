@@ -377,6 +377,8 @@ export const api = {
     request('/voice/call', { method: 'POST', body: JSON.stringify(payload) }),
   getVoiceSessionStatus: (sessionId) =>
     request(`/voice/session/${sessionId}`),
+  getVoiceSessionTranscript: (sessionId) =>
+    request(`/voice/session/${sessionId}/transcript`),
   getVoiceSessionRequirements: (sessionId) =>
     request(`/voice/session/${sessionId}/requirements`),
   getVoiceSessionMarkdownUrl: (sessionId) =>

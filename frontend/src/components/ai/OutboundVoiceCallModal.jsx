@@ -463,29 +463,121 @@ export const OutboundVoiceCallModal = ({
                 <span>Finish / End Call</span>
               </button>
             </div>
+            </div>
           ) : callState === 'completed' ? (
-            /* Completed Discovery View */
+            /* Completed / Incomplete Discovery View */
             <div>
-              <div
-                style={{
-                  padding: '16px 18px',
-                  borderRadius: 12,
-                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                  border: '1px solid rgba(16, 185, 129, 0.25)',
-                  marginBottom: 16
-                }}
-              >
-                <h4 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CheckCircle2 size={18} />
-                  <span>Requirements Discovered & Saved</span>
-                </h4>
-                <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary, #CBD5E1)', lineHeight: 1.5 }}>
-                  The 28-section <code style={{ color: '#F59E0B' }}>project-requirements.md</code> document has been generated and linked directly to your RootForge Solution Builder pipeline.
-                </p>
+              {(() => {
+                const userMsgCount = (discoveryData?.conversation || []).filter(m => m.speaker === 'user' || m.role === 'user').length;
+                const isTrulyComplete = userMsgCount >= 4;
+                return (
+                  <div
+                    style={{
+                      padding: '16px 18px',
+                      borderRadius: 12,
+                      backgroundColor: isTrulyComplete ? 'rgba(16, 185, 129, 0.08)' : 'rgba(217, 119, 6, 0.08)',
+                      border: `1px solid ${isTrulyComplete ? 'rgba(16, 185, 129, 0.25)' : 'rgba(217, 119, 6, 0.25)'}`,
+                      marginBottom: 16
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: isTrulyComplete ? '#10B981' : 'var(--accent-amber, #D97706)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {isTrulyComplete ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                        <span>{isTrulyComplete ? 'Discovery Completed' : 'Discovery Incomplete'}</span>
+                      </h4>
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          padding: '2px 8px',
+                          borderRadius: 20,
+                          backgroundColor: 'rgba(16, 185, 129, 0.18)',
+                          color: '#10B981',
+                          border: '1px solid rgba(16, 185, 129, 0.3)'
+                        }}
+                      >
+                        Conversation Recorded
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary, #CBD5E1)', lineHeight: 1.5 }}>
+                      {isTrulyComplete
+                        ? 'All 3 discovery questions were completed and saved as Markdown (.md) in your workspace.'
+                        : 'Call ended early. Partial conversation transcript was saved as Markdown (.md).'}
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Action Toolbar: View Conversation | View Requirements | Download Markdown */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowTranscript(false)}
+                  className={`btn ${!showTranscript ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <ListCheck size={14} />
+                  <span>View Requirements</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowTranscript(true)}
+                  className={`btn ${showTranscript ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <MessageSquare size={14} />
+                  <span>
+                    {(discoveryData?.conversation || []).filter(m => m.speaker === 'user' || m.role === 'user').length >= 4
+                      ? 'View Conversation'
+                      : 'View Partial Conversation'}
+                    {` (${(discoveryData?.conversation || []).length} turns)`}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadMarkdown}
+                  disabled={downloading}
+                  className="btn btn-secondary"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginLeft: 'auto'
+                  }}
+                >
+                  {downloading ? (
+                    <>
+                      <Loader2 size={14} className="spin" />
+                      <span>Downloading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      <span>Download Markdown (.md)</span>
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* Discovered Highlights Summary */}
-              {discoveryData?.requirements && (
+              {/* VIEW 1: Discovered Highlights Summary */}
+              {!showTranscript && discoveryData?.requirements && (
                 <div
                   style={{
                     backgroundColor: 'rgba(0,0,0,0.2)',
@@ -496,7 +588,7 @@ export const OutboundVoiceCallModal = ({
                   }}
                 >
                   <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
-                    Discovered Overview
+                    Collected Requirements Summary
                   </span>
                   {discoveryData.requirements.business_problem && (
                     <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
@@ -504,50 +596,53 @@ export const OutboundVoiceCallModal = ({
                       <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.business_problem}</span>
                     </div>
                   )}
-                  {Array.isArray(discoveryData.requirements.features) && discoveryData.requirements.features.length > 0 && (
+                  {discoveryData.requirements.business_objective && (
                     <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
-                      <strong style={{ color: '#10B981' }}>Key Features: </strong>
-                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.features.join(', ')}</span>
+                      <strong style={{ color: '#38BDF8' }}>Objective: </strong>
+                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.business_objective}</span>
+                    </div>
+                  )}
+                  {Array.isArray(discoveryData.requirements.target_users) && discoveryData.requirements.target_users.length > 0 && (
+                    <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
+                      <strong style={{ color: '#A78BFA' }}>Target Users: </strong>
+                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.target_users.join(', ')}</span>
+                    </div>
+                  )}
+                  {Array.isArray(discoveryData.requirements.core_requirements) && discoveryData.requirements.core_requirements.length > 0 && (
+                    <div style={{ marginTop: 8, fontSize: '0.84rem' }}>
+                      <strong style={{ color: '#10B981' }}>Core Requirements: </strong>
+                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.core_requirements.join(', ')}</span>
+                    </div>
+                  )}
+                  {Array.isArray(discoveryData.requirements.ai_recommendations) && discoveryData.requirements.ai_recommendations.length > 0 && (
+                    <div style={{ marginTop: 8, fontSize: '0.84rem', borderTop: '1px dashed var(--border-subtle, #2A313C)', paddingTop: 8 }}>
+                      <strong style={{ color: 'var(--accent-amber, #D97706)' }}>AI Recommendations: </strong>
+                      <span style={{ color: 'var(--text-primary)' }}>{discoveryData.requirements.ai_recommendations.join(', ')}</span>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Transcript Drawer Toggle */}
-              {discoveryData?.conversation && discoveryData.conversation.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowTranscript(!showTranscript)}
-                    className="btn btn-ghost"
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: '0.82rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: 'var(--accent-amber, #D97706)'
-                    }}
-                  >
-                    <MessageSquare size={15} />
-                    <span>{showTranscript ? 'Hide Conversation Transcript' : `View Conversation Transcript (${discoveryData.conversation.length} turns)`}</span>
-                  </button>
-
-                  {showTranscript && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        maxHeight: 220,
-                        overflowY: 'auto',
-                        padding: 12,
-                        borderRadius: 8,
-                        backgroundColor: 'rgba(0,0,0,0.35)',
-                        border: '1px solid var(--border-medium, #2A313C)',
-                        fontSize: '0.8rem'
-                      }}
-                    >
-                      {discoveryData.conversation.map((c, idx) => (
-                        <div key={idx} style={{ marginBottom: 10 }}>
+              {/* VIEW 2: Complete Transcript Drawer */}
+              {showTranscript && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    maxHeight: 260,
+                    overflowY: 'auto',
+                    padding: 14,
+                    borderRadius: 10,
+                    backgroundColor: 'rgba(0,0,0,0.35)',
+                    border: '1px solid var(--border-medium, #2A313C)',
+                    fontSize: '0.82rem'
+                  }}
+                >
+                  {(discoveryData?.conversation || []).map((c, idx) => {
+                    const speaker = (c.speaker || c.role || 'unknown').toLowerCase();
+                    const isAi = speaker === 'assistant';
+                    return (
+                      <div key={idx} style={{ marginBottom: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                           <span
                             style={{
                               display: 'inline-block',
@@ -556,27 +651,31 @@ export const OutboundVoiceCallModal = ({
                               fontSize: '0.7rem',
                               fontWeight: 700,
                               textTransform: 'uppercase',
-                              backgroundColor: c.role === 'assistant' ? 'rgba(217, 119, 6, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                              color: c.role === 'assistant' ? 'var(--accent-amber)' : '#10B981',
-                              marginRight: 8
+                              backgroundColor: isAi ? 'rgba(217, 119, 6, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                              color: isAi ? 'var(--accent-amber, #D97706)' : '#10B981'
                             }}
                           >
-                            {c.role}
+                            {isAi ? 'AI' : 'User'}
                           </span>
-                          <span style={{ color: 'var(--text-primary)' }}>{c.text}</span>
-                          {c.englishText && c.englishText !== c.text && (
-                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginLeft: 8, marginTop: 2, fontStyle: 'italic' }}>
-                              Normalized: {c.englishText}
-                            </div>
+                          {c.questionNumber !== null && c.questionNumber !== undefined && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              {c.questionNumber === 0 ? (isAi ? 'Greeting' : 'Initial Requirement') : `Q${c.questionNumber}`}
+                            </span>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        <div style={{ color: 'var(--text-primary)', marginLeft: 2, lineHeight: 1.4 }}>{c.text}</div>
+                        {c.englishText && c.englishText !== c.text && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 2, marginTop: 2, fontStyle: 'italic' }}>
+                            English interpretation: {c.englishText}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
-              {/* Action Buttons */}
+              {/* Bottom Navigation Buttons */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
                 <button
                   type="button"
@@ -586,33 +685,6 @@ export const OutboundVoiceCallModal = ({
                 >
                   Start New Call
                 </button>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadMarkdown}
-                  disabled={downloading}
-                  className="btn btn-secondary"
-                  style={{
-                    padding: '9px 16px',
-                    fontSize: '0.84rem',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}
-                >
-                  {downloading ? (
-                    <>
-                      <Loader2 size={15} className="spin" />
-                      <span>Generating .md...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download size={15} />
-                      <span>Download .md</span>
-                    </>
-                  )}
-                </button>
-
 
                 <button
                   type="button"

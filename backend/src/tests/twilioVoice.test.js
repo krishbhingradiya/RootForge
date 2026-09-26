@@ -136,7 +136,7 @@ async function runVoiceTests() {
       speechResult: 'Thank you, goodbye!',
       sessionId: testSessionId
     });
-    assert(goodbyeResponse.includes('<Hangup/>'), 'Goodbye transcript ends call gracefully with <Hangup/>');
+    assert(goodbyeResponse.includes('<Hangup/>') || goodbyeResponse.includes('<Hangup />'), 'Goodbye transcript ends call gracefully with <Hangup/>');
 
     // Test Status Callback
     await voiceWebhookService.handleStatusCallback({

@@ -602,8 +602,49 @@ model VoiceSession {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  messages         VoiceConversationMessage[]
+  document         VoiceConversationDocument?
+
   @@map("voice_sessions")
   @@index([userId, createdAt])
   @@index([twilioCallSid])
   @@index([status])
 }
+
+model VoiceConversationMessage {
+  id             String        @id @default(cuid())
+  sessionId      String
+  voiceSession   VoiceSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sequence       Int
+  speaker        String        // user, assistant
+  text           String
+  englishText    String?
+  language       String        @default("en-IN")
+  timestamp      DateTime      @default(now())
+  questionNumber Int?          // 0 = initial, 1 = Q1, 2 = Q2, 3 = Q3
+  turnId         String?
+  createdAt      DateTime      @default(now())
+
+  @@map("voice_conversation_messages")
+  @@index([sessionId, sequence])
+  @@index([sessionId, questionNumber])
+}
+
+model VoiceConversationDocument {
+  id           String        @id @default(cuid())
+  sessionId    String        @unique
+  voiceSession VoiceSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  workspaceId  String?
+  projectId    String?
+  fileName     String
+  fileType     String        @default("text/markdown")
+  storagePath  String
+  fileSize     Int           @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("voice_conversation_documents")
+  @@index([sessionId])
+  @@index([workspaceId])
+}
+

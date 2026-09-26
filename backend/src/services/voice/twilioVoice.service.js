@@ -21,6 +21,8 @@ import { validatePhoneNumber, normalizePhoneNumber, maskPhoneNumber } from '../.
 
 // Development & Transient In-Memory Cache
 const inMemoryVoiceSessions = new Map();
+const inMemoryVoiceMessages = new Map();
+const inMemoryVoiceDocuments = new Map();
 
 export class TwilioVoiceService {
   constructor() {
@@ -143,6 +145,12 @@ export class TwilioVoiceService {
               { phoneNumber: idOrCallSidOrPhone }
             ]
           },
+          include: {
+            messages: {
+              orderBy: { sequence: 'asc' }
+            },
+            document: true
+          },
           orderBy: { createdAt: 'desc' }
         });
         if (dbRecord) {
@@ -156,12 +164,21 @@ export class TwilioVoiceService {
 
     // 2. In-Memory lookup fallback
     if (inMemoryVoiceSessions.has(idOrCallSidOrPhone)) {
-      return inMemoryVoiceSessions.get(idOrCallSidOrPhone);
+      const memSession = inMemoryVoiceSessions.get(idOrCallSidOrPhone);
+      return {
+        ...memSession,
+        messages: inMemoryVoiceMessages.get(memSession.id) || [],
+        document: inMemoryVoiceDocuments.get(memSession.id) || null
+      };
     }
 
     for (const session of inMemoryVoiceSessions.values()) {
       if (session.twilioCallSid === idOrCallSidOrPhone || session.phoneNumber === idOrCallSidOrPhone) {
-        return session;
+        return {
+          ...session,
+          messages: inMemoryVoiceMessages.get(session.id) || [],
+          document: inMemoryVoiceDocuments.get(session.id) || null
+        };
       }
     }
 
@@ -213,6 +230,238 @@ export class TwilioVoiceService {
 
     return updatedData;
   }
+
+  /**
+   * Persists a conversation turn message with strict deduplication & sequence numbering
+   */
+  async saveConversationMessage({
+    sessionId,
+    speaker, // 'user' | 'assistant'
+    text,
+    englishText = null,
+    language = 'en-IN',
+    questionNumber = null,
+    turnId = null,
+    sequence = null
+  }) {
+    if (!sessionId || !text || !text.trim()) return null;
+
+    const trimmedText = text.trim();
+    const cleanEnglish = englishText ? englishText.trim() : trimmedText;
+
+    // Get current message list for sequence & duplicate checking
+    const existingMessages = await this.getConversationMessages(sessionId);
+
+    // 1. Duplicate Prevention:
+    // Check if a message with the identical turnId was already saved
+    if (turnId) {
+      const existingTurn = existingMessages.find(m => m.turnId === turnId);
+      if (existingTurn) {
+        console.log(`[VoiceSession] Duplicate message skipped by turnId (${turnId})`);
+        return existingTurn;
+      }
+    }
+
+    // Check if the last message in this session has identical speaker and text
+    const lastMsg = existingMessages[existingMessages.length - 1];
+    if (lastMsg && lastMsg.speaker === speaker && lastMsg.text.trim() === trimmedText) {
+      console.log(`[VoiceSession] Duplicate consecutive message skipped: "${trimmedText.slice(0, 30)}..."`);
+      return lastMsg;
+    }
+
+    const nextSequence = sequence !== null && sequence !== undefined ? sequence : (existingMessages.length + 1);
+    const msgId = `vmsg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date();
+
+    const messageObj = {
+      id: msgId,
+      sessionId,
+      sequence: nextSequence,
+      speaker,
+      text: trimmedText,
+      englishText: cleanEnglish,
+      language: language || 'en-IN',
+      questionNumber: questionNumber !== undefined ? questionNumber : null,
+      turnId: turnId || null,
+      timestamp: now,
+      createdAt: now
+    };
+
+    // Primary PostgreSQL Insert
+    try {
+      if (prisma?.voiceConversationMessage) {
+        const dbMsg = await prisma.voiceConversationMessage.create({
+          data: {
+            id: msgId,
+            sessionId,
+            sequence: nextSequence,
+            speaker,
+            text: trimmedText,
+            englishText: cleanEnglish,
+            language: language || 'en-IN',
+            questionNumber: questionNumber !== undefined ? questionNumber : null,
+            turnId: turnId || null,
+            timestamp: now
+          }
+        });
+        console.log(`[VoiceSession] Saved turn #${nextSequence} [${speaker.toUpperCase()}] to PostgreSQL for session ${sessionId}`);
+
+        // Update in-memory cache
+        const memList = inMemoryVoiceMessages.get(sessionId) || [];
+        memList.push(dbMsg);
+        inMemoryVoiceMessages.set(sessionId, memList);
+
+        return dbMsg;
+      }
+    } catch (err) {
+      console.warn(`[VoiceSession] PostgreSQL message insert fallback (${err.message}). Using memory cache.`);
+    }
+
+    // In-memory fallback
+    const memList = inMemoryVoiceMessages.get(sessionId) || [];
+    memList.push(messageObj);
+    inMemoryVoiceMessages.set(sessionId, memList);
+    console.log(`[VoiceSession] Saved turn #${nextSequence} [${speaker.toUpperCase()}] to memory cache for session ${sessionId}`);
+
+    return messageObj;
+  }
+
+  /**
+   * Retrieves all conversation turns for a session in chronological sequence order
+   */
+  async getConversationMessages(sessionId) {
+    if (!sessionId) return [];
+
+    try {
+      if (prisma?.voiceConversationMessage) {
+        const messages = await prisma.voiceConversationMessage.findMany({
+          where: { sessionId },
+          orderBy: { sequence: 'asc' }
+        });
+        if (messages && messages.length > 0) {
+          inMemoryVoiceMessages.set(sessionId, messages);
+          return messages;
+        }
+      }
+    } catch (err) {
+      console.warn(`[VoiceSession] PostgreSQL message fetch notice (${err.message}):`, err.message);
+    }
+
+    return inMemoryVoiceMessages.get(sessionId) || [];
+  }
+
+  /**
+   * Saves or updates metadata of generated Markdown document in database and memory
+   */
+  async saveConversationDocument({
+    sessionId,
+    workspaceId = null,
+    projectId = null,
+    fileName,
+    fileType = 'text/markdown',
+    storagePath,
+    fileSize = 0,
+    extractedText = ''
+  }) {
+    if (!sessionId || !fileName) return null;
+
+    const docId = `vdoc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date();
+
+    const docData = {
+      id: docId,
+      sessionId,
+      workspaceId,
+      projectId,
+      fileName,
+      fileType,
+      storagePath,
+      fileSize,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // 1. Primary PostgreSQL persistence via Prisma VoiceConversationDocument
+    try {
+      if (prisma?.voiceConversationDocument) {
+        const dbDoc = await prisma.voiceConversationDocument.upsert({
+          where: { sessionId },
+          update: {
+            workspaceId,
+            projectId,
+            fileName,
+            fileType,
+            storagePath,
+            fileSize,
+            updatedAt: now
+          },
+          create: {
+            id: docId,
+            sessionId,
+            workspaceId,
+            projectId,
+            fileName,
+            fileType,
+            storagePath,
+            fileSize
+          }
+        });
+
+        // 2. Also register in Workspace Document library if workspaceId is present
+        if (workspaceId && prisma?.document) {
+          try {
+            await prisma.document.create({
+              data: {
+                workspaceId,
+                filename: fileName,
+                originalName: fileName,
+                fileType: 'text/markdown',
+                fileSize,
+                status: 'ANALYZED',
+                extractedText: extractedText || ''
+              }
+            });
+            console.log(`[VoiceSession] Registered document in Workspace ${workspaceId}: ${fileName}`);
+          } catch (wsErr) {
+            console.warn('[VoiceSession] Workspace document registration notice:', wsErr.message);
+          }
+        }
+
+        console.log(`[VoiceSession] Saved VoiceConversationDocument in PostgreSQL: ${dbDoc.id} (${fileName})`);
+        inMemoryVoiceDocuments.set(sessionId, dbDoc);
+        return dbDoc;
+      }
+    } catch (err) {
+      console.warn(`[VoiceSession] PostgreSQL document insert fallback (${err.message}). Using memory cache.`);
+    }
+
+    inMemoryVoiceDocuments.set(sessionId, docData);
+    return docData;
+  }
+
+  /**
+   * Retrieves conversation document metadata for a session
+   */
+  async getConversationDocument(sessionId) {
+    if (!sessionId) return null;
+
+    try {
+      if (prisma?.voiceConversationDocument) {
+        const doc = await prisma.voiceConversationDocument.findUnique({
+          where: { sessionId }
+        });
+        if (doc) {
+          inMemoryVoiceDocuments.set(sessionId, doc);
+          return doc;
+        }
+      }
+    } catch (err) {
+      console.warn(`[VoiceSession] PostgreSQL document fetch notice:`, err.message);
+    }
+
+    return inMemoryVoiceDocuments.get(sessionId) || null;
+  }
+
 
   /**
    * Initiates an outbound AI phone call to the user's mobile phone via Twilio REST API.
