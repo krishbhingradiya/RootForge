@@ -375,8 +375,29 @@ Return strictly a JSON object with this EXACT structure:
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.AI_API_KEY;
 
-    const detectedLang = conversation.find(c => c.language)?.language || 'en-IN';
-    const transcriptText = conversation.map(c => `[${c.role.toUpperCase()} - ${c.timestamp || ''}]: ${c.englishText || c.text}`).join('\n');
+    let effectiveConversation = [...conversation];
+    if (effectiveConversation.length <= 1 && session?.id && prisma?.voiceSession) {
+      try {
+        const dbSession = await prisma.voiceSession.findUnique({
+          where: { id: session.id },
+          select: { conversationJson: true, requirementsJson: true }
+        });
+        if (dbSession?.conversationJson) {
+          const parsed = JSON.parse(dbSession.conversationJson);
+          if (Array.isArray(parsed) && parsed.length > effectiveConversation.length) {
+            effectiveConversation = parsed;
+          }
+        }
+        if (dbSession?.requirementsJson && Object.keys(requirements).length === 0) {
+          try {
+            requirements = JSON.parse(dbSession.requirementsJson);
+          } catch {}
+        }
+      } catch {}
+    }
+
+    const detectedLang = effectiveConversation.find(c => c.language)?.language || 'en-IN';
+    const transcriptText = effectiveConversation.map(c => `[${c.role.toUpperCase()} - ${c.timestamp || ''}]: ${c.englishText || c.text}`).join('\n');
 
     const prompt = `You are the Principal Solutions Architect at RootForge.
 Generate a comprehensive, production-grade 28-Section "Project Requirements Document" in pure Markdown format based on this Discovery Voice Call transcript and gathered requirements.
@@ -482,7 +503,7 @@ ${JSON.stringify(requirements, null, 2)}`;
     // 3. Build Transcript Markdown Section
     const transcriptSection = this.buildConversationTranscriptMarkdown({
       session,
-      conversation,
+      conversation: effectiveConversation,
       detectedLanguage: detectedLang
     });
 

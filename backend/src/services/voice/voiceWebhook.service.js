@@ -136,17 +136,19 @@ export class VoiceWebhookService {
       toPhone
     });
 
-    state.conversation = [
-      {
-        role: 'assistant',
-        text: initialGreeting,
-        englishText: initialGreeting,
-        language: 'en-IN',
-        timestamp: new Date().toISOString()
-      }
-    ];
+    if (!state.conversation || state.conversation.length === 0) {
+      state.conversation = [
+        {
+          role: 'assistant',
+          text: initialGreeting,
+          englishText: initialGreeting,
+          language: 'en-IN',
+          timestamp: new Date().toISOString()
+        }
+      ];
+    }
 
-    // Update DB status asynchronously
+    // Update DB status and persist conversation asynchronously
     (async () => {
       try {
         if (session) {
@@ -155,6 +157,15 @@ export class VoiceWebhookService {
             status: 'active',
             connectedAt: new Date()
           });
+
+          if (prisma?.voiceSession) {
+            await prisma.voiceSession.update({
+              where: { id: session.id },
+              data: {
+                conversationJson: JSON.stringify(state.conversation)
+              }
+            });
+          }
         }
       } catch (err) {
         console.warn('[VoiceWebhook] Non-blocking session update notice:', err.message);
@@ -231,6 +242,21 @@ export class VoiceWebhookService {
       timestamp: new Date().toISOString()
     });
 
+    // Immediately persist user turn to PostgreSQL
+    if (session?.id && prisma?.voiceSession) {
+      try {
+        await prisma.voiceSession.update({
+          where: { id: session.id },
+          data: {
+            conversationJson: JSON.stringify(state.conversation),
+            requirementsJson: JSON.stringify(state.requirements || {})
+          }
+        });
+      } catch (e) {
+        console.warn('[VoiceWebhook] DB persist turn notice:', e.message);
+      }
+    }
+
     // Check for explicit goodbye / call end request
     const lowerEnglish = normalized.englishTranscript.toLowerCase();
     const isGoodbye = /\b(bye|goodbye|exit|end call|stop call|hang up|that's all|that is all|thank you bye|finish call)\b/i.test(lowerEnglish);
@@ -277,7 +303,9 @@ export class VoiceWebhookService {
           try {
             await twilioVoiceService.updateSession(session.id, {
               status: 'completed',
-              endedAt: new Date()
+              endedAt: new Date(),
+              conversationJson: JSON.stringify(state.conversation),
+              requirementsJson: JSON.stringify(state.requirements || {})
             });
           } catch {}
         })();
@@ -353,7 +381,9 @@ export class VoiceWebhookService {
           try {
             await twilioVoiceService.updateSession(session.id, {
               status: 'completed',
-              endedAt: new Date()
+              endedAt: new Date(),
+              conversationJson: JSON.stringify(state.conversation),
+              requirementsJson: JSON.stringify(state.requirements || {})
             });
           } catch {}
         })();
@@ -388,6 +418,21 @@ export class VoiceWebhookService {
       timestamp: new Date().toISOString()
     });
 
+    // Immediately persist assistant turn to PostgreSQL
+    if (session?.id && prisma?.voiceSession) {
+      try {
+        await prisma.voiceSession.update({
+          where: { id: session.id },
+          data: {
+            conversationJson: JSON.stringify(state.conversation),
+            requirementsJson: JSON.stringify(state.requirements || {})
+          }
+        });
+      } catch (e) {
+        console.warn('[VoiceWebhook] DB persist turn notice:', e.message);
+      }
+    }
+
     console.log('[VoiceAgent] TTS started');
     console.log(`[VoiceAgent] Audio sent to Twilio: "${localizedQuestion}"`);
     console.log('[VoiceAgent] Conversation turn completed');
@@ -401,11 +446,44 @@ export class VoiceWebhookService {
   }
 
   /**
-   * Retrieves conversation & requirements for a session
+   * Retrieves conversation & requirements for a session (with DB fallback)
    */
-  getSessionDetails(sessionIdOrCallSid) {
+  async getSessionDetails(sessionIdOrCallSid) {
     if (!sessionIdOrCallSid) return null;
-    return sessionStates.get(sessionIdOrCallSid) || null;
+    let state = sessionStates.get(sessionIdOrCallSid) || null;
+
+    if ((!state || !state.conversation || state.conversation.length <= 1) && prisma?.voiceSession) {
+      try {
+        const dbRecord = await prisma.voiceSession.findFirst({
+          where: {
+            OR: [
+              { id: sessionIdOrCallSid },
+              { twilioCallSid: sessionIdOrCallSid }
+            ]
+          },
+          select: { conversationJson: true, requirementsJson: true }
+        });
+
+        if (dbRecord?.conversationJson) {
+          const parsed = JSON.parse(dbRecord.conversationJson);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            if (!state) {
+              state = this.resolveSessionState({ sessionId: sessionIdOrCallSid });
+            }
+            if (parsed.length > (state.conversation?.length || 0)) {
+              state.conversation = parsed;
+            }
+            if (dbRecord.requirementsJson) {
+              try {
+                state.requirements = { ...state.requirements, ...JSON.parse(dbRecord.requirementsJson) };
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return state;
   }
 
   /**
