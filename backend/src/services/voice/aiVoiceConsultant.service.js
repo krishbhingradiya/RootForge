@@ -206,7 +206,7 @@ Return strictly a JSON object with this EXACT structure:
   "missing_information": ["..."]
 }`;
 
-    const promptContext = `Conversation History:\n${conversationHistory.map(h => `${(h.speaker || h.role || 'user').toUpperCase()}: ${h.englishText || h.text}`).join('\n')}\n\nAccumulated Requirements so far:\n${JSON.stringify(currentTurnRequirements, null, 2)}`;
+    const promptContext = `Conversation History:\n${conversationHistory.map(h => `${h.role.toUpperCase()}: ${h.englishText || h.text}`).join('\n')}\n\nAccumulated Requirements so far:\n${JSON.stringify(currentTurnRequirements, null, 2)}`;
 
     // 1. Try Groq (Llama 3.3 70B)
     if (groqKey) {
@@ -280,104 +280,75 @@ Return strictly a JSON object with this EXACT structure:
     }
 
     // 3. Fallback Dynamic Question Formulation
-    return this._getFallbackQuestion(conversationHistory, currentTurnRequirements);
-  }
-
-  _getFallbackQuestion(conversationHistory = [], currentTurnRequirements = {}) {
-    const userTurns = conversationHistory.filter(c => c.speaker === 'user' || c.role === 'user');
-    const userTurnCount = userTurns.length;
-
-    if (userTurnCount <= 1) {
-      return {
-        question_number: 1,
-        conversation_complete: false,
-        detected_language: 'en-IN',
-        english_summary: 'Initial requirement received.',
-        next_question: 'Who are the primary users and target audiences that will use this system?',
-        question_reason: 'Identify primary users and user roles.',
-        requirements: currentTurnRequirements,
-        missing_information: ['Target Users', 'Core Workflows', 'Integrations']
-      };
-    } else if (userTurnCount === 2) {
-      return {
-        question_number: 2,
-        conversation_complete: false,
-        detected_language: 'en-IN',
-        english_summary: 'Target users identified.',
-        next_question: 'What is the main problem this platform must solve, and what core workflows will users perform?',
-        question_reason: 'Define core problem and essential workflows.',
-        requirements: currentTurnRequirements,
-        missing_information: ['Core Workflows', 'Integrations']
-      };
-    } else if (userTurnCount === 3) {
-      return {
-        question_number: 3,
-        conversation_complete: false,
-        detected_language: 'en-IN',
-        english_summary: 'Core workflows identified.',
-        next_question: 'What external systems, payment gateways, or delivery tracking integrations will you require?',
-        question_reason: 'Uncover integrations, security, and third-party boundaries.',
-        requirements: currentTurnRequirements,
-        missing_information: ['Integrations']
-      };
-    }
-
+    const lastUserTurn = conversationHistory.filter(c => c.role === 'user').slice(-1)[0]?.text || '';
     return {
-      question_number: 3,
-      conversation_complete: true,
+      conversation_complete: conversationHistory.filter(c => c.role === 'user').length >= 6,
       detected_language: 'en-IN',
-      english_summary: 'Discovery questions completed.',
-      next_question: 'Thank you. I have recorded all the requirements for your solution.',
-      question_reason: 'Complete discovery',
+      english_summary: 'User requirements gathered in progress.',
+      next_question: `Understood regarding ${lastUserTurn.slice(0, 30)}. What are the top three core features your users will interact with daily?`,
+      question_reason: 'Discover core functional features',
       requirements: currentTurnRequirements,
-      missing_information: []
+      missing_information: ['Core Features', 'Integrations']
     };
   }
 
   /**
-   * Synthesizes structured requirements from conversation using Groq / Gemini without hallucination
+   * Generates complete 28-section Project Requirements Markdown Document
    */
-  async synthesizeStructuredRequirements({ initialRequirement = '', messages = [], previousRequirements = {} }) {
+  async generateProjectRequirementsDocument({ session, conversation = [], requirements = {} }) {
+    console.log('[VoiceAgent] Markdown generation started');
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.AI_API_KEY;
 
-    const userTurns = messages.filter(m => m.speaker === 'user' || m.role === 'user');
-    const assistantTurns = messages.filter(m => m.speaker === 'assistant' || m.role === 'assistant');
+    const transcriptText = conversation.map(c => `[${c.role.toUpperCase()} - ${c.timestamp || ''}]: ${c.englishText || c.text}`).join('\n');
 
-    const transcriptContext = messages
-      .map(m => `[${(m.speaker || m.role || 'unknown').toUpperCase()}]: ${m.englishText || m.text}`)
-      .join('\n');
+    const prompt = `You are the Principal Solutions Architect at RootForge.
+Generate a comprehensive, production-grade 28-Section "Project Requirements Document" in pure Markdown format based on this Discovery Voice Call transcript and gathered requirements.
 
-    const systemPrompt = `You are RootForge Principal Solutions Architect.
-Analyze this voice discovery conversation transcript and extract structured project requirements.
+RULES:
+- Do NOT invent or hallucinate information. If the user did not specify something, state: "Not specified by the user during discovery call."
+- Clearly distinguish between user-confirmed requirements, AI-derived architectural recommendations, and open assumptions.
+- Use clean GitHub-flavored Markdown with tables and bullet points.
 
-CRITICAL RULES:
-1. Extract requirements ONLY from what the user explicitly stated or confirmed. Do NOT fabricate or invent user features.
-2. If the user did not specify an area (e.g. data requirements, security, AI), state "Not specified during discovery call" or add to "missing_information".
-3. AI Recommendations MUST be separated from User-Provided Requirements.
-4. Return STRICT JSON with this EXACT structure:
+MUST CONTAIN ALL 28 SECTIONS IN THIS EXACT ORDER:
+# Project Requirements: ${requirements.business_objective || 'AI Solution Specification'}
 
-{
-  "business_problem": "...",
-  "business_objective": "...",
-  "target_users": ["User Role 1", "..."],
-  "core_requirements": ["Requirement 1", "..."],
-  "workflows": ["Workflow 1", "..."],
-  "integrations": ["Integration 1", "..."],
-  "ai_requirements": ["AI feature 1", "..."],
-  "security_requirements": ["Security item 1", "..."],
-  "data_requirements": ["Data requirement 1", "..."],
-  "missing_information": ["Missing item 1", "..."],
-  "ai_recommendations": ["AI recommendation 1", "..."]
-}`;
+## 1. Project Overview
+## 2. Business Problem
+## 3. Business Objectives & Success Metrics
+## 4. Target Users & Personas
+## 5. Stakeholders
+## 6. User Roles & Permissions
+## 7. Current Process & Baseline
+## 8. Current Pain Points
+## 9. Proposed Future Process (Target State)
+## 10. Functional Requirements
+## 11. Core Features & Capabilities
+## 12. User Workflows & Journey Maps
+## 13. AI & Intelligent Automation Requirements
+## 14. Automation Opportunities
+## 15. Integration Requirements (APIs, ERP, CRM, Payment, Third-Party)
+## 16. Data Requirements & Entities
+## 17. Database & Storage Architecture
+## 18. Authentication & Authorization (RBAC / SSO)
+## 19. Security, Privacy & Compliance Requirements
+## 20. Non-Functional Requirements (Performance, Latency, Scalability)
+## 21. UI/UX Requirements & Interaction Design
+## 22. Reporting, Dashboards & Analytics
+## 23. Technical Constraints & Platform Choices
+## 24. Deployment & Infrastructure Requirements
+## 25. Expected Business Outcomes & ROI
+## 26. Open Questions & Items Requiring Clarification
+## 27. Assumptions
+## 28. Implementation Recommendations & Next Steps
 
-    const userPrompt = `INITIAL PROJECT REQUIREMENT:
-${initialRequirement || userTurns[0]?.englishText || userTurns[0]?.text || 'Not provided'}
+TRANSCRIPT & DISCOVERED DATA:
+${transcriptText}
 
-FULL CONVERSATION TRANSCRIPT:
-${transcriptContext}
+STRUCTURED DATA:
+${JSON.stringify(requirements, null, 2)}`;
 
-Extract structured requirements now in JSON.`;
+    let markdownContent = '';
 
     // 1. Try Groq
     if (groqKey) {
@@ -390,30 +361,23 @@ Extract structured requirements now in JSON.`;
           },
           body: JSON.stringify({
             model: 'llama-3.3-70b-versatile',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }],
             temperature: 0.2,
-            max_tokens: 1500
+            max_tokens: 4000
           })
         });
 
         if (res.ok) {
           const data = await res.json();
-          const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
-          if (parsed && (parsed.business_problem || parsed.core_requirements)) {
-            return parsed;
-          }
+          markdownContent = data.choices?.[0]?.message?.content?.trim() || '';
         }
       } catch (err) {
-        console.warn('[AiVoiceConsultant] Groq synthesis fallback:', err.message);
+        console.warn('[AiVoiceConsultant] Groq doc generation fallback:', err.message);
       }
     }
 
-    // 2. Try Gemini
-    if (geminiKey) {
+    // 2. Try Gemini Fallback
+    if (!markdownContent && geminiKey) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
         const res = await fetch(endpoint, {
@@ -423,317 +387,63 @@ Extract structured requirements now in JSON.`;
             'x-goog-api-key': geminiKey
           },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 1500 }
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
           })
         });
 
         if (res.ok) {
           const data = await res.json();
-          const raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          const parsed = JSON.parse(raw || '{}');
-          if (parsed && (parsed.business_problem || parsed.core_requirements)) {
-            return parsed;
-          }
+          markdownContent = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         }
       } catch (err) {
-        console.warn('[AiVoiceConsultant] Gemini synthesis fallback:', err.message);
+        console.warn('[AiVoiceConsultant] Gemini doc generation fallback:', err.message);
       }
     }
 
-    // 3. Fallback deterministic extraction
-    const initialText = initialRequirement || userTurns[0]?.text || 'Software solution discovery.';
-    return {
-      business_problem: initialText,
-      business_objective: `Build an enterprise application addressing: ${initialText}`,
-      target_users: userTurns[1]?.text ? [userTurns[1].text] : ['Target audience'],
-      core_requirements: userTurns.map((u, i) => `Turn ${i + 1}: ${u.englishText || u.text}`),
-      workflows: userTurns[2]?.text ? [userTurns[2].text] : ['Standard application workflow'],
-      integrations: userTurns[3]?.text ? [userTurns[3].text] : ['Not specified during discovery call.'],
-      ai_requirements: ['RootForge AI-assisted workflows'],
-      security_requirements: ['Standard authentication and role-based access control.'],
-      data_requirements: ['PostgreSQL relational database schema.'],
-      missing_information: ['Detailed payment gateway credentials', 'Specific SLA latency metrics'],
-      ai_recommendations: ['Consider implementing real-time notifications and status updates.']
-    };
-  }
-
-  /**
-   * Deterministically builds the Markdown string strictly from stored conversation data.
-   * NEVER paraphrases the raw conversation turns.
-   */
-  buildVoiceDiscoveryMarkdown({
-    session,
-    messages = [],
-    requirements = {},
-    initialRequirement = '',
-    status = 'Completed'
-  }) {
-    const sessionId = session?.id || 'session-unknown';
-    const callSid = session?.twilioCallSid || 'CA_N/A';
-    const startedAt = session?.startedAt ? new Date(session.startedAt).toISOString() : (session?.createdAt ? new Date(session.createdAt).toISOString() : new Date().toISOString());
-    const endedAt = session?.endedAt ? new Date(session.endedAt).toISOString() : new Date().toISOString();
-
-    // Determine primary conversation language
-    const languages = messages.map(m => m.language).filter(Boolean);
-    const conversationLanguage = languages.find(l => l && l !== 'en-IN') || (languages[0] || 'en-IN');
-
-    // Discovery Status Header
-    const isCompleted = status === 'completed' || status === 'Completed' || session?.status === 'completed';
-    const statusText = isCompleted
-      ? 'Completed'
-      : 'Incomplete — user ended the call before completing discovery.';
-
-    // 1. Initial Project Requirement
-    const userMessages = messages.filter(m => m.speaker === 'user' || m.role === 'user');
-    const initialReqText = initialRequirement || userMessages[0]?.text || 'Not specified by the user.';
-
-    // 2. Question / Answer Mapping for Questions 1, 2, 3
-    const q1Assistant = messages.find(m => (m.speaker === 'assistant' || m.role === 'assistant') && m.questionNumber === 1);
-    const q1User = messages.find(m => (m.speaker === 'user' || m.role === 'user') && m.questionNumber === 1);
-
-    const q2Assistant = messages.find(m => (m.speaker === 'assistant' || m.role === 'assistant') && m.questionNumber === 2);
-    const q2User = messages.find(m => (m.speaker === 'user' || m.role === 'user') && m.questionNumber === 2);
-
-    const q3Assistant = messages.find(m => (m.speaker === 'assistant' || m.role === 'assistant') && m.questionNumber === 3);
-    const q3User = messages.find(m => (m.speaker === 'user' || m.role === 'user') && m.questionNumber === 3);
-
-    const formatQaTurn = (num, aiTurn, userTurn) => {
-      let section = `## AI — Question ${num}\n\n`;
-      section += aiTurn?.text ? `${aiTurn.text}\n\n` : `[Question ${num} was not reached during this call]\n\n`;
-      section += `## User — Answer ${num}\n\n`;
-      if (userTurn?.text) {
-        section += `${userTurn.text}\n`;
-        if (userTurn.englishText && userTurn.englishText !== userTurn.text) {
-          section += `\n> English interpretation: ${userTurn.englishText}\n`;
-        }
-      } else {
-        section += `[Answer ${num} was not provided]\n`;
-      }
-      return section;
-    };
-
-    let qaTranscript = '';
-    qaTranscript += formatQaTurn(1, q1Assistant, q1User) + '\n';
-    qaTranscript += formatQaTurn(2, q2Assistant, q2User) + '\n';
-    qaTranscript += formatQaTurn(3, q3Assistant, q3User);
-
-    // 3. Complete Conversation in Strict Chronological Order
-    let completeConversation = '';
-    messages.forEach(m => {
-      const speakerName = (m.speaker === 'assistant' || m.role === 'assistant') ? 'AI' : 'User';
-      completeConversation += `### ${speakerName}\n\n${m.text}\n\n`;
-      if (m.englishText && m.englishText !== m.text) {
-        completeConversation += `> English interpretation: ${m.englishText}\n\n`;
-      }
-    });
-    if (!completeConversation.trim()) {
-      completeConversation = '*(No conversation turns recorded)*\n';
+    if (!markdownContent) {
+      markdownContent = `# Project Requirements Document\n\n## 1. Project Overview\nBased on discovery call session ${session?.id || ''}.\n\n## 2. Business Problem\n${requirements.business_problem || 'Not specified'}\n\n## 3. Core Features\n${Array.isArray(requirements.features) ? requirements.features.join('\n- ') : 'Core features under specification.'}`;
     }
 
-    // 4. Collected Requirements Formatting Helper
-    const formatListOrText = (val, fallback = 'Not specified by the user during discovery call.') => {
-      if (!val) return fallback;
-      if (Array.isArray(val)) {
-        if (val.length === 0) return fallback;
-        return val.map(item => `- ${item}`).join('\n');
-      }
-      return String(val);
-    };
+    // Save Markdown file to uploads directory
+    const workspaceId = session?.workspaceId || 'default-workspace';
+    const fileName = `${workspaceId}-${session?.id || Date.now()}-project-requirements.md`;
+    const filePath = path.join(uploadsDir, fileName);
 
-    const businessProblem = requirements.business_problem || initialReqText || 'Not specified by user.';
-    const businessObjective = requirements.business_objective || `Deliver an AI-powered enterprise solution addressing ${businessProblem}.`;
-    const targetUsers = formatListOrText(requirements.target_users || requirements.users);
-    const coreRequirements = formatListOrText(requirements.core_requirements || requirements.features);
-    const workflows = formatListOrText(requirements.workflows);
-    const integrations = formatListOrText(requirements.integrations);
-    const aiRequirements = formatListOrText(requirements.ai_requirements);
-    const securityRequirements = formatListOrText(requirements.security_requirements);
-    const dataRequirements = formatListOrText(requirements.data_requirements);
-    const missingInfo = formatListOrText(requirements.missing_information, 'None identified.');
-    const recommendations = formatListOrText(requirements.ai_recommendations, 'Proceed to solution blueprinting.');
-
-    // Assemble Exact Markdown Document
-    return `# RootForge AI Voice Discovery
-
-## Session Information
-
-- Session ID: ${sessionId}
-- Call ID: ${callSid}
-- Started At: ${startedAt}
-- Ended At: ${endedAt}
-- Conversation Language: ${conversationLanguage}
-- Discovery Status: ${statusText}
-
----
-
-# Initial Project Requirement
-
-${initialReqText}
-
----
-
-# Conversation Transcript
-
-${qaTranscript.trim()}
-
----
-
-# Complete Conversation
-
-${completeConversation.trim()}
-
----
-
-# Collected Requirements
-
-## Business Problem
-
-${businessProblem}
-
-## Business Objective
-
-${businessObjective}
-
-## Target Users
-
-${targetUsers}
-
-## Core Requirements
-
-${coreRequirements}
-
-## Workflows
-
-${workflows}
-
-## Integrations
-
-${integrations}
-
-## AI Requirements
-
-${aiRequirements}
-
-## Security Requirements
-
-${securityRequirements}
-
-## Data Requirements
-
-${dataRequirements}
-
----
-
-# Missing Information
-
-${missingInfo}
-
----
-
-# AI Recommendations
-
-${recommendations}
-`;
-  }
-
-  /**
-   * Generates and saves the Markdown file to uploads/voice-discovery/ and persists metadata
-   */
-  async generateAndSaveVoiceDiscoveryMarkdown({
-    session,
-    messages = [],
-    requirements = {},
-    initialRequirement = '',
-    status = 'Completed'
-  }) {
-    console.log('[VoiceAgent] Deterministic voice discovery markdown generation started');
-
-    // 1. Synthesize structured requirements if missing
-    let finalRequirements = requirements;
-    if (!finalRequirements || Object.keys(finalRequirements).length === 0 || !finalRequirements.business_problem) {
-      try {
-        finalRequirements = await this.synthesizeStructuredRequirements({
-          initialRequirement,
-          messages,
-          previousRequirements: requirements || {}
-        });
-      } catch (err) {
-        console.warn('[AiVoiceConsultant] Structured requirements synthesis notice:', err.message);
-        finalRequirements = requirements || {};
-      }
-    }
-
-    // 2. Build Markdown content deterministically
-    const markdownContent = this.buildVoiceDiscoveryMarkdown({
-      session,
-      messages,
-      requirements: finalRequirements,
-      initialRequirement,
-      status
-    });
-
-    // 3. Ensure uploads/voice-discovery directory exists
-    const voiceDiscoveryDir = path.resolve(uploadsDir, 'voice-discovery');
-    if (!fs.existsSync(voiceDiscoveryDir)) {
-      try {
-        fs.mkdirSync(voiceDiscoveryDir, { recursive: true });
-      } catch {}
-    }
-
-    const sessionId = session?.id || `vses_${Date.now()}`;
-    const fileName = `voice-discovery-${sessionId}.md`;
-    const filePath = path.join(voiceDiscoveryDir, fileName);
-    const storageRelativePath = `uploads/voice-discovery/${fileName}`;
-
-    // Write file to filesystem
     fs.writeFileSync(filePath, markdownContent, 'utf8');
     const fileSize = Buffer.byteLength(markdownContent, 'utf8');
 
-    console.log(`[VoiceAgent] Voice discovery Markdown saved: ${fileName} (${fileSize} bytes) at ${filePath}`);
+    console.log(`[VoiceAgent] Markdown generated and saved: ${fileName} (${fileSize} bytes)`);
 
-    // 4. Save file metadata in Database via TwilioVoiceService
-    let docRecord = null;
+    // Register Document in Prisma PostgreSQL Database for the Workspace
+    let documentRecord = null;
     try {
-      const { twilioVoiceService } = await import('./twilioVoice.service.js');
-      docRecord = await twilioVoiceService.saveConversationDocument({
-        sessionId,
-        workspaceId: session?.workspaceId || null,
-        projectId: session?.projectId || null,
-        fileName,
-        fileType: 'text/markdown',
-        storagePath: storageRelativePath,
-        fileSize,
-        extractedText: markdownContent
-      });
+      if (prisma?.document && session?.workspaceId) {
+        documentRecord = await prisma.document.create({
+          data: {
+            workspaceId: session.workspaceId,
+            filename: fileName,
+            originalName: 'project-requirements.md',
+            fileType: 'text/markdown',
+            fileSize,
+            status: 'ANALYZED',
+            extractedText: markdownContent
+          }
+        });
+        console.log(`[VoiceAgent] Created Document in Workspace ${session.workspaceId}: ${documentRecord.id}`);
+      }
     } catch (err) {
-      console.warn('[AiVoiceConsultant] Document metadata persistence notice:', err.message);
+      console.warn('[AiVoiceConsultant] Document registration notice:', err.message);
     }
 
     return {
       fileName,
       filePath,
-      storagePath: storageRelativePath,
       fileSize,
       markdownContent,
-      requirements: finalRequirements,
-      documentId: docRecord?.id || null
+      documentId: documentRecord?.id || null
     };
-  }
-
-  /**
-   * Legacy / Backward-compatible wrapper for Project Requirements Document
-   */
-  async generateProjectRequirementsDocument({ session, conversation = [], requirements = {} }) {
-    return this.generateAndSaveVoiceDiscoveryMarkdown({
-      session,
-      messages: conversation,
-      requirements,
-      status: session?.status || 'Completed'
-    });
   }
 }
 
 export const aiVoiceConsultantService = new AiVoiceConsultantService();
-
